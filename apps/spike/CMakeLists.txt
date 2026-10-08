@@ -9,6 +9,7 @@ target_compile_definitions(SamplerSpike PRIVATE
 target_link_libraries(SamplerSpike
     PRIVATE
         sampler_engine
+        sampler_ui
         juce::juce_gui_basics
         juce::juce_recommended_config_flags)
 sampler_target_debuggable(SamplerSpike)

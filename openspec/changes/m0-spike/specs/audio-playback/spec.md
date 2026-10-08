@@ -13,16 +13,23 @@ The app SHALL play WAV and MP3 files through the default Windows audio device us
 - **WHEN** the user opens a WAV file and presses play
 - **THEN** the audio is heard at the correct pitch and speed
 
-#### Scenario: MP3 plays without encoder delay
+#### Scenario: MP3 plays at the correct speed
 - **WHEN** the user opens an MP3 file and presses play
-- **THEN** the audio is heard at the correct pitch and speed, and the start is not preceded by the encoder padding
+- **THEN** the audio is heard at the correct pitch and speed
 
-### Requirement: M4A decoder coverage is reported
-The spike SHALL determine which M4A files the platform media decoder can read and record the result.
+### Requirement: MP3 encoder delay behaviour is reported
+The spike SHALL determine whether the engine's decoder removes the MP3 encoder delay and padding, and record the result and the planned handling.
 
-#### Scenario: Coverage recorded
-- **WHEN** a set of AAC and ALAC M4A test files is opened
-- **THEN** the findings document lists which decode and which do not
+#### Scenario: Delay measured
+- **WHEN** a LAME-encoded MP3 is decoded by the engine
+- **THEN** the findings document states whether its decoded length matches the true audio length, and that trimming is done at import (M1) if it does not
+
+### Requirement: M4A is out of scope for M0
+M4A decoding SHALL NOT be a required result of this milestone; any M4A findings are recorded for information only.
+
+#### Scenario: Not required
+- **WHEN** M0 exit criteria are checked
+- **THEN** no M4A result is needed to pass
 
 ### Requirement: Clips keep beat positions on tempo change
 Changing the project tempo SHALL keep each clip at the same beat position, so the clip moves in time.

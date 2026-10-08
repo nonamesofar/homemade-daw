@@ -1,5 +1,8 @@
 # Everything that touches Tracktion lives here (linked PRIVATE: no Tracktion types in public headers).
-add_library(sampler_engine STATIC EngineHost.cpp EngineHost.h)
+add_library(sampler_engine STATIC
+    EngineHost.cpp EngineHost.h
+    EngineSetup.cpp EngineSetup.h
+    EditLab.cpp EditLab.h)
 target_include_directories(sampler_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_compile_definitions(sampler_engine PUBLIC
     JUCE_WEB_BROWSER=0
@@ -11,6 +14,8 @@ target_compile_definitions(sampler_engine PUBLIC
 target_link_libraries(sampler_engine
     PUBLIC
         juce::juce_core
+        juce::juce_audio_formats
+        juce::juce_events
     PRIVATE
         tracktion::tracktion_core
         tracktion::tracktion_engine

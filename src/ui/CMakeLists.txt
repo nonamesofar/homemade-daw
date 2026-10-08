@@ -1,0 +1,5 @@
+add_library(sampler_ui STATIC timeline/TimelineComponent.cpp timeline/TimelineComponent.h timeline/TimelineGeometry.h)
+target_include_directories(sampler_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_compile_definitions(sampler_ui PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(sampler_ui PUBLIC juce::juce_gui_basics juce::juce_audio_utils)
+sampler_target_debuggable(sampler_ui)

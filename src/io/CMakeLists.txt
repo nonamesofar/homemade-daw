@@ -1,0 +1,6 @@
+add_library(sampler_io STATIC AtomicFile.cpp AtomicFile.h)
+target_include_directories(sampler_io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(sampler_io PUBLIC juce::juce_core)
+target_compile_definitions(sampler_io PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+sampler_target_debuggable(sampler_io)
+sampler_target_warnings(sampler_io)

@@ -13,7 +13,7 @@ No source exists yet. The authoritative design is `technical design/technical-de
 
 **Non-Goals:**
 - Production quality UI, `CommandService`, undo, import pipeline, analysis, slicing, pads, installer.
-- macOS, ASIO, out-of-process plugin scanning (the spike loads Maschine by a fixed path).
+- macOS, ASIO, out-of-process plugin scanning (the spike loads test plugins by fixed path).
 - Making spike code tidy. Throwaway is acceptable; findings are the deliverable.
 
 ## Decisions
@@ -30,7 +30,7 @@ No source exists yet. The authoritative design is `technical design/technical-de
 
 6. **Timeline spike is a plain JUCE `Component`** drawing from a model with 4 tracks and 50 clips; waveforms from Tracktion `SmartThumbnail` (also exercises thumbnail redirection). Hit-testing, viewport math and drag-reorder index math are in plain classes with Catch2 tests, per the testing rules. Perf target: 30 fps or better under continuous zoom/scroll on the dev PC.
 
-7. **Maschine test with a fixed VST3 path**, scanning in process (spike only). Multi-out: wrap the plugin in a rack with 4 stereo output pairs; output tracks each hold a rack instance set to output N. Check "runs once" by counting `processBlock` calls (via a tiny wrapper plugin or the host's own counter) and by CPU comparison. If Tracktion racks instantiate the plugin per track, record failure and test the alternative of one shared instance feeding tracks through an `AudioProcessorGraph`-style tap. Offline render with Tracktion `Renderer`; compare against a real-time capture of the same range to check timing.
+7. **Multi-out VST3 test with a fixed VST3 path** (stand-in for Maschine 3, which is not owned yet; the primary target is a JUCE test plugin built in this repo with 4 stereo outputs, optional extras are Surge XT and Kontakt 7 Player; Maschine-specific checks move to M5), scanning in process (spike only). Multi-out: wrap the plugin in a rack with 4 stereo output pairs; output tracks each hold a rack instance set to output N. Check "runs once" by counting `processBlock` calls (via a tiny wrapper plugin or the host's own counter) and by CPU comparison. If Tracktion racks instantiate the plugin per track, record failure and test the alternative of one shared instance feeding tracks through an `AudioProcessorGraph`-style tap. Offline render with Tracktion `Renderer`; compare against a real-time capture of the same range to check timing.
 
 8. **Assumption checks are automated where possible.** Tempo-change, relative-path, custom-property round trip and cache-redirect checks are Catch2 tests (run headless, plugin-free), so they become regression tests for M1. Maschine, capture, UI perf are manual and logged in the findings doc.
 
@@ -41,7 +41,8 @@ No source exists yet. The authoritative design is `technical design/technical-de
 ## Risks / Trade-offs
 
 - [Tracktion 3 / JUCE 8 API drift versus the design's assumptions] → pin versions, read the actual headers first, record differences in findings.
-- [Maschine refuses to load, or needs a licence/online check] → try the standalone-activated install; log the exact failure; fall back to a JUCE test plugin to separate host bugs from plugin quirks.
+- [A third-party plugin refuses to load or needs activation] → log the exact failure; retest with the JUCE test plugin to separate host bugs from plugin quirks.
+- [Stand-in does not exercise Maschine quirks (huge state, editor resize, drag-out)] → accepted; R14 stays open until the M5 acceptance test.
 - [Process loopback unavailable on build 19045] → expected; endpoint loopback plus default-mute policy covers it; record it.
 - [Debug-build performance of UI] → measure in the release preset as well; report both.
 - [Scope creep into M1 work] → the non-goals list above; spike code isn't tidied.
