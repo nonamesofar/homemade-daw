@@ -5,7 +5,7 @@
 - [x] 1.1 Add JUCE 8, Tracktion Engine 3 and Catch2 as pinned submodules in `external/`, record versions in `external/VERSIONS.md`; verify `git submodule status` shows exact commits and the file lists them
 - [x] 1.2 Create top-level `CMakeLists.txt`, `CMakePresets.json` (`windows-msvc-debug`, `windows-msvc-release`), `src/` layout per AGENTS.md, static MSVC runtime, `/O2` on Tracktion and engine in debug; verify the debug preset configures and builds an empty JUCE+Tracktion app with no warnings
 - [x] 1.3 Add a Catch2 test target and a trivial test wired to `ctest`; verify `ctest --preset windows-msvc-debug` runs and passes
-- [ ] 1.4 Add GitHub Actions workflow on `windows-latest` (submodules, build, ctest); verify the workflow is green on the branch
+- [x] 1.4 Add GitHub Actions workflow on `windows-latest` (submodules, build, ctest); verify the workflow is green on the branch
 - [x] 1.5 Create `docs/m0-findings.md` with the results table skeleton listing every M0 exit item; verify each item from the roadmap M0 row has a row
 
 ## 2. Playback, M4A and offline render

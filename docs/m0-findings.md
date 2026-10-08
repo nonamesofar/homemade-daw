@@ -8,8 +8,8 @@ Environment: Windows 10 22H2 build 19045. Pinned versions: see `external/VERSION
 
 | # | Item | Task | Result | Numbers / notes | Decision |
 |---|---|---|---|---|---|
-| 1 | CMake + JUCE 8 + Tracktion 3 build on Windows | 1.2 | todo | | |
-| 2 | CI green on Windows | 1.4 | todo | | |
+| 1 | CMake + JUCE 8 + Tracktion 3 build on Windows | 1.2 | pass | Debug and CI build clean, no warnings | |
+| 2 | CI green on Windows | 1.4 | pass | windows-latest, configure+build+ctest in 6m32s | |
 | 3 | Play a WAV | 2.1 | todo | | |
 | 4 | Play an MP3 (no encoder-delay gap) | 2.2 | todo | | |
 | 5 | Capture probe: 30 s of browser audio via WASAPI loopback | 4.1, 4.2 | todo | | |
