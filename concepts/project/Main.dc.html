@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#17181b}
+a{color:inherit}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;box-sizing:border-box;display:flex;flex-direction:column;background:#17181b;color:#ececef;font-family:'IBM Plex Sans',sans-serif;font-size:13px">
+
+  <header style="display:flex;align-items:center;gap:24px;height:60px;flex:none;padding:0 16px;background:#202125;border-bottom:1px solid #34353b;box-sizing:border-box">
+    <div style="display:flex;align-items:center;gap:10px;width:232px">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#ff7a3d" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 9v4M7 6v10M11 3v16M15 7v8M19 9v4"/></svg>
+      <span style="font-weight:600;font-size:16px;letter-spacing:0.02em">Sampler</span>
+    </div>
+
+    <div style="display:flex;gap:4px;padding:3px;background:#17181b;border-radius:8px">
+      <button style="height:34px;padding:0 16px;border:0;border-radius:6px;background:#ff7a3d;color:#17181b;font:600 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Session</button>
+      <a href="Arrangement.dc.html" style="display:inline-flex;align-items:center;height:34px;padding:0 16px;border-radius:6px;background:transparent;color:#a1a2ab;font:500 13px 'IBM Plex Sans',sans-serif;text-decoration:none">Arrange</a>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button aria-label="Stop" onClick="{{ onStop }}" style="width:44px;height:44px;border:1px solid #34353b;border-radius:8px;background:#27282d;display:flex;align-items:center;justify-content:center;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="#ececef" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/></svg>
+      </button>
+      <button aria-label="Play" onClick="{{ onPlay }}" style="width:44px;height:44px;border:1px solid #34353b;border-radius:8px;background:{{ playBg }};display:flex;align-items:center;justify-content:center;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="{{ playFg }}" aria-hidden="true"><path d="M3 1.5l11 6.5-11 6.5z"/></svg>
+      </button>
+      <button aria-label="Record" style="width:44px;height:44px;border:1px solid #34353b;border-radius:8px;background:#27282d;display:flex;align-items:center;justify-content:center;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="#ff6b6b" aria-hidden="true"><circle cx="8" cy="8" r="6"/></svg>
+      </button>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">TEMPO</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500">120.00</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">TIME SIG</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500">4 / 4</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;width:120px">
+      <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">POSITION</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500">{{ barText }}</span>
+    </div>
+    <button style="height:36px;padding:0 14px;border:1px solid #34353b;border-radius:6px;background:#27282d;color:#ececef;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Click</button>
+
+    <div style="flex:1"></div>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a1a2ab">44.1 kHz · 5.8 ms</span>
+  </header>
+
+  <div style="flex:1;min-height:0;display:flex">
+
+    <aside style="width:264px;flex:none;box-sizing:border-box;background:#202125;border-right:1px solid #34353b;display:flex;flex-direction:column;padding:16px 0">
+      <div style="padding:0 16px 14px">
+        <input type="search" aria-label="Search samples" placeholder="Search samples" style="width:100%;box-sizing:border-box;height:40px;border-radius:6px;border:1px solid #34353b;background:#17181b;color:#ececef;padding:0 12px;font:400 13px 'IBM Plex Sans',sans-serif">
+      </div>
+      <div style="padding:0 16px 6px;font-size:10px;letter-spacing:0.08em;color:#a1a2ab">PLACES</div>
+      <button style="height:34px;margin:0 8px;padding:0 8px;border:0;border-radius:6px;background:#2f3036;color:#ececef;text-align:left;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">All samples</button>
+      <button style="height:34px;margin:0 8px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:#a1a2ab;text-align:left;font:400 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Loops</button>
+      <button style="height:34px;margin:0 8px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:#a1a2ab;text-align:left;font:400 13px 'IBM Plex Sans',sans-serif;cursor:pointer">One-shots</button>
+      <button style="height:34px;margin:0 8px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:#a1a2ab;text-align:left;font:400 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Recordings</button>
+
+      <div style="height:1px;background:#34353b;margin:14px 16px 10px"></div>
+
+      <div style="flex:1;min-height:0;overflow:hidden">
+        <sc-for list="{{ files }}" as="f" hint-placeholder-count="8">
+          <button style="width:100%;height:38px;padding:0 16px;border:0;background:transparent;color:#ececef;display:flex;align-items:center;gap:10px;text-align:left;font:400 13px 'IBM Plex Sans',sans-serif;cursor:pointer">
+            <svg width="28" height="14" viewBox="0 0 28 14" fill="none" stroke="#a1a2ab" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 5v4M6 3v8M10 1v12M14 4v6M18 2v10M22 5v4M26 6v2"/></svg>
+            <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</span>
+            <span style="font-size:11px;color:#a1a2ab">{{ f.tag }}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="margin:0 16px;border:1px dashed #4a4b53;border-radius:8px;padding:18px 12px;text-align:center;color:#a1a2ab;line-height:1.4">Drop audio here to start sampling</div>
+    </aside>
+
+    <main style="flex:1;min-width:0;display:flex;flex-direction:column">
+
+      <section style="flex:1;min-height:0;box-sizing:border-box;padding:16px;display:flex;gap:10px;overflow:hidden">
+
+        <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="4">
+          <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:6px">
+            <div style="height:36px;flex:none;box-sizing:border-box;padding:0 12px;border-radius:6px;background:{{ t.color }};color:#17181b;display:flex;align-items:center;font-weight:600">{{ t.name }}</div>
+            <sc-for list="{{ t.clips }}" as="c" hint-placeholder-count="5">
+              <sc-if value="{{ c.has }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ c.pick }}" style="width:100%;height:44px;flex:none;border:0;border-radius:6px;background:{{ c.bg }};color:{{ c.fg }};display:flex;align-items:center;gap:8px;padding:0 10px;text-align:left;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="{{ c.iconFill }}" stroke="{{ c.iconStroke }}" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 2l9 5-9 5z"/></svg>
+                  <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</span>
+                </button>
+              </sc-if>
+              <sc-if value="{{ c.empty }}" hint-placeholder-val="{{ false }}">
+                <div style="width:100%;height:44px;flex:none;border-radius:6px;background:#202125"></div>
+              </sc-if>
+            </sc-for>
+            <div style="height:176px;flex:none;box-sizing:border-box;padding:10px;border-radius:8px;background:#202125;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;gap:6px;justify-content:center">
+                <button aria-label="{{ t.muteLabel }}" style="width:32px;height:26px;border:1px solid #34353b;border-radius:5px;background:#27282d;color:#ececef;font:600 11px 'IBM Plex Sans',sans-serif;cursor:pointer">M</button>
+                <button aria-label="{{ t.soloLabel }}" style="width:32px;height:26px;border:1px solid #34353b;border-radius:5px;background:#27282d;color:#ececef;font:600 11px 'IBM Plex Sans',sans-serif;cursor:pointer">S</button>
+                <button aria-label="{{ t.armLabel }}" style="width:32px;height:26px;border:1px solid #34353b;border-radius:5px;background:#27282d;color:#ececef;font:600 11px 'IBM Plex Sans',sans-serif;cursor:pointer">R</button>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;justify-content:center;gap:16px">
+                <div aria-hidden="true" style="position:relative;width:6px;border-radius:3px;background:#34353b">
+                  <div style="position:absolute;left:-7px;width:20px;height:10px;border-radius:3px;background:#ececef;bottom:{{ t.pos }}%"></div>
+                </div>
+                <div aria-hidden="true" style="position:relative;width:6px;border-radius:3px;background:#17181b;overflow:hidden">
+                  <div style="position:absolute;left:0;right:0;bottom:0;background:{{ t.color }};height:{{ t.meter }}%"></div>
+                </div>
+              </div>
+              <div style="text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a1a2ab">{{ t.db }} dB</div>
+            </div>
+          </div>
+        </sc-for>
+
+        <div style="width:120px;flex:none;display:flex;flex-direction:column;gap:6px">
+          <button style="height:36px;flex:none;border:1px dashed #4a4b53;border-radius:6px;background:transparent;color:#a1a2ab;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">+ Audio track</button>
+        </div>
+
+        <div style="width:56px;flex:none;display:flex;flex-direction:column;gap:6px">
+          <div style="height:36px;flex:none"></div>
+          <sc-for list="{{ scenes }}" as="s" hint-placeholder-count="5">
+            <button aria-label="{{ s.label }}" onClick="{{ s.launch }}" style="width:100%;height:44px;flex:none;border:1px solid #34353b;border-radius:6px;background:#27282d;color:#ececef;display:flex;align-items:center;justify-content:center;gap:6px;font:500 12px 'IBM Plex Mono',monospace;cursor:pointer">
+              <svg width="10" height="10" viewBox="0 0 14 14" fill="#ececef" aria-hidden="true"><path d="M3 2l9 5-9 5z"/></svg>
+              <span>{{ s.num }}</span>
+            </button>
+          </sc-for>
+        </div>
+
+        <div style="width:112px;flex:none;display:flex;flex-direction:column;gap:6px">
+          <div style="height:36px;flex:none;box-sizing:border-box;padding:0 12px;border-radius:6px;background:#3a3b42;color:#ececef;display:flex;align-items:center;font-weight:600">Master</div>
+          <button onClick="{{ stopAll }}" style="width:100%;height:44px;flex:none;border:1px solid #34353b;border-radius:6px;background:#27282d;color:#ececef;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Stop all</button>
+          <div style="height:44px;flex:none;border-radius:6px;background:#202125"></div>
+          <div style="height:44px;flex:none;border-radius:6px;background:#202125"></div>
+          <div style="height:44px;flex:none;border-radius:6px;background:#202125"></div>
+          <div style="height:44px;flex:none;border-radius:6px;background:#202125"></div>
+          <div style="height:176px;flex:none;box-sizing:border-box;padding:10px;border-radius:8px;background:#202125;display:flex;flex-direction:column;gap:8px">
+            <div style="height:26px"></div>
+            <div style="flex:1;min-height:0;display:flex;justify-content:center;gap:16px">
+              <div aria-hidden="true" style="position:relative;width:6px;border-radius:3px;background:#34353b">
+                <div style="position:absolute;left:-7px;width:20px;height:10px;border-radius:3px;background:#ececef;bottom:{{ master.pos }}%"></div>
+              </div>
+              <div aria-hidden="true" style="position:relative;width:6px;border-radius:3px;background:#17181b;overflow:hidden">
+                <div style="position:absolute;left:0;right:0;bottom:0;background:#ececef;height:{{ master.meter }}%"></div>
+              </div>
+            </div>
+            <div style="text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a1a2ab">{{ master.db }} dB</div>
+          </div>
+        </div>
+      </section>
+
+      <section style="height:300px;flex:none;box-sizing:border-box;background:#202125;border-top:1px solid #34353b;display:flex;flex-direction:column">
+        <div style="height:52px;flex:none;box-sizing:border-box;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid #34353b">
+          <span style="width:12px;height:12px;border-radius:3px;background:{{ selColor }}"></span>
+          <span style="font-weight:600;font-size:15px">{{ selName }}</span>
+          <span style="color:#a1a2ab">{{ selTrack }} · 4 bars</span>
+          <div style="flex:1"></div>
+          <a href="Sampler.dc.html" style="display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:6px;border:1px solid #34353b;background:#27282d;color:#ececef;text-decoration:none;font-weight:500">Open in sample editor</a>
+        </div>
+        <div style="flex:1;min-height:0;box-sizing:border-box;display:flex;gap:16px;padding:16px">
+          <div style="width:232px;flex:none;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));grid-template-rows:repeat(3, minmax(0, 1fr));gap:8px">
+            <button style="border:0;border-radius:6px;background:#ff7a3d;color:#17181b;padding:8px 10px;text-align:left;display:flex;flex-direction:column;gap:4px;justify-content:center;font:600 14px 'IBM Plex Sans',sans-serif;cursor:pointer"><span style="font-size:10px;letter-spacing:0.08em">WARP</span><span>On</span></button>
+            <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center">
+              <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">MODE</span>
+              <select aria-label="Warp mode" style="color-scheme:dark;border:0;background:transparent;color:#ececef;font:500 14px 'IBM Plex Sans',sans-serif;padding:0;margin-left:-2px">
+                <option>Beats</option>
+                <option>Tones</option>
+                <option>Texture</option>
+                <option>Re-pitch</option>
+              </select>
+            </div>
+            <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">BPM</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">90.00</span></div>
+            <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">GAIN</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">0.0 dB</span></div>
+            <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">LENGTH</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">4 bars</span></div>
+            <button style="border:1px solid #34353b;border-radius:6px;background:#27282d;color:#ececef;padding:8px 10px;text-align:left;display:flex;flex-direction:column;gap:4px;justify-content:center;font:600 14px 'IBM Plex Sans',sans-serif;cursor:pointer"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">LOOP</span><span>On</span></button>
+          </div>
+
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-radius:8px;overflow:hidden;background:#17181b">
+            <div style="height:24px;flex:none;display:flex;border-bottom:1px solid #34353b;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a1a2ab">
+              <div style="flex:1;padding:4px 6px">1</div>
+              <div style="flex:1;padding:4px 6px;border-left:1px solid #34353b">2</div>
+              <div style="flex:1;padding:4px 6px;border-left:1px solid #34353b">3</div>
+              <div style="flex:1;padding:4px 6px;border-left:1px solid #34353b">4</div>
+            </div>
+            <div style="position:relative;flex:1;min-height:0">
+              <svg viewBox="0 0 960 120" preserveAspectRatio="none" role="img" aria-label="Clip waveform" style="position:absolute;left:0;top:0;width:100%;height:100%">
+                <path d="{{ gridPath }}" fill="none" stroke="#2c2d33" stroke-width="1" vector-effect="non-scaling-stroke"/>
+                <path d="{{ wavePath }}" fill="none" stroke="{{ selColor }}" stroke-width="2" vector-effect="non-scaling-stroke"/>
+              </svg>
+              <div style="position:absolute;top:0;bottom:0;left:38%;width:2px;background:#ececef"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { playing: true, active: [0, 1, 0, null], sel: { t: 0, c: 0 } };
+  }
+
+  wave(n, seed) {
+    let d = '';
+    const per = n / 16;
+    for (let i = 0; i < n; i++) {
+      const x = (i * (960 / n) + 1).toFixed(1);
+      const phase = (i % per) / per;
+      const env = Math.exp(-phase * 3.2);
+      const a = Math.min(1, (0.16 + 0.84 * env) * (0.55 + 0.45 * Math.abs(Math.sin(i * 0.73 + seed))));
+      d += 'M' + x + ' ' + (60 - a * 56).toFixed(1) + 'V' + (60 + a * 56).toFixed(1);
+    }
+    return d;
+  }
+
+  renderVals() {
+    const st = this.state;
+    const defs = [
+      { name: 'Drums', base: '#ff8f5a', dim: '#43302a', clips: ['Break 90', 'Break 90 b', 'Kick Pattern', 'Fill', ''], pos: 72, db: '-4.5', lvl: 58 },
+      { name: 'Bass', base: '#4fd1c5', dim: '#1f3e3b', clips: ['Sub C', 'Sub F', '', 'Sub C walk', ''], pos: 64, db: '-7.0', lvl: 46 },
+      { name: 'Chops', base: '#b9a2ff', dim: '#35304f', clips: ['Keys Chop 1', 'Keys Chop 2', 'Keys Chop 3', '', 'Reverse Keys'], pos: 80, db: '-2.0', lvl: 64 },
+      { name: 'Vocal', base: '#f0d65f', dim: '#4a4426', clips: ['Vox Phrase', '', 'Vox Echo', '', ''], pos: 55, db: '-10.5', lvl: 40 }
+    ];
+
+    const tracks = defs.map((t, ti) => ({
+      name: t.name,
+      color: t.base,
+      muteLabel: 'Mute ' + t.name,
+      soloLabel: 'Solo ' + t.name,
+      armLabel: 'Arm ' + t.name,
+      pos: t.pos,
+      db: t.db,
+      meter: st.playing && st.active[ti] !== null ? t.lvl : 0,
+      clips: t.clips.map((name, ci) => {
+        const has = name !== '';
+        const on = st.active[ti] === ci;
+        return {
+          name: name,
+          has: has,
+          empty: !has,
+          bg: on ? t.base : t.dim,
+          fg: on ? '#17181b' : '#ececef',
+          iconFill: on ? '#17181b' : 'none',
+          iconStroke: on ? '#17181b' : t.base,
+          pick: () => {
+            const a = st.active.slice();
+            a[ti] = a[ti] === ci ? null : ci;
+            this.setState({ active: a, sel: { t: ti, c: ci }, playing: true });
+          }
+        };
+      })
+    }));
+
+    const scenes = [0, 1, 2, 3, 4].map((si) => ({
+      num: si + 1,
+      label: 'Launch scene ' + (si + 1),
+      launch: () => this.setState({ active: defs.map((t) => (t.clips[si] ? si : null)), playing: true })
+    }));
+
+    const sd = defs[st.sel.t];
+    let grid = '';
+    for (let i = 0; i <= 16; i++) { grid += 'M' + i * 60 + ' 0V120'; }
+
+    return {
+      tracks: tracks,
+      scenes: scenes,
+      master: { pos: 78, db: '0.0', meter: st.playing ? 60 : 0 },
+      files: [
+        { name: 'Break 90', tag: 'loop' },
+        { name: 'Dusty Keys', tag: 'loop' },
+        { name: 'Vox Phrase', tag: 'phrase' },
+        { name: 'Sub Bass C', tag: 'one-shot' },
+        { name: 'Vinyl Crackle', tag: 'texture' },
+        { name: 'Snare 01', tag: 'one-shot' },
+        { name: 'Kick Deep', tag: 'one-shot' },
+        { name: 'Hat Loop', tag: 'loop' }
+      ],
+      playBg: st.playing ? '#ff7a3d' : '#27282d',
+      playFg: st.playing ? '#17181b' : '#ececef',
+      onPlay: () => this.setState({ playing: !st.playing }),
+      onStop: () => this.setState({ playing: false, active: [null, null, null, null] }),
+      stopAll: () => this.setState({ active: [null, null, null, null] }),
+      barText: st.playing ? '5 . 2 . 3' : '1 . 1 . 1',
+      selName: sd.clips[st.sel.c],
+      selColor: sd.base,
+      selTrack: sd.name,
+      wavePath: this.wave(240, st.sel.t * 2 + st.sel.c * 0.9),
+      gridPath: grid
+    };
+  }
+}
+</script>
+</body>
+</html>

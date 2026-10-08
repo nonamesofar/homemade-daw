@@ -1,0 +1,8 @@
+# build output
+build/
+out/
+.vs/
+*.user
+
+# local Claude settings
+.claude/settings.local.json

@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arrangement view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#17181b}
+a{color:inherit}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;box-sizing:border-box;display:flex;flex-direction:column;background:#17181b;color:#ececef;font-family:'IBM Plex Sans',sans-serif;font-size:13px">
+
+  <header style="display:flex;align-items:center;gap:24px;height:60px;flex:none;padding:0 16px;background:#202125;border-bottom:1px solid #34353b;box-sizing:border-box">
+    <div style="display:flex;align-items:center;gap:10px;width:232px">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#ff7a3d" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 9v4M7 6v10M11 3v16M15 7v8M19 9v4"/></svg>
+      <span style="font-weight:600;font-size:16px;letter-spacing:0.02em">Sampler</span>
+    </div>
+
+    <div style="display:flex;gap:4px;padding:3px;background:#17181b;border-radius:8px">
+      <a href="Main.dc.html" style="display:inline-flex;align-items:center;height:34px;padding:0 16px;border-radius:6px;background:transparent;color:#a1a2ab;font:500 13px 'IBM Plex Sans',sans-serif;text-decoration:none">Session</a>
+      <span aria-current="page" style="display:inline-flex;align-items:center;height:34px;padding:0 16px;border-radius:6px;background:#ff7a3d;color:#17181b;font:600 13px 'IBM Plex Sans',sans-serif">Arrange</span>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button aria-label="Stop" onClick="{{ onStop }}" style="width:44px;height:44px;border:1px solid #34353b;border-radius:8px;background:#27282d;display:flex;align-items:center;justify-content:center;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="#ececef" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/></svg>
+      </button>
+      <button aria-label="Play" onClick="{{ onPlay }}" style="width:44px;height:44px;border:1px solid #34353b;border-radius:8px;background:{{ playBg }};display:flex;align-items:center;justify-content:center;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="{{ playFg }}" aria-hidden="true"><path d="M3 1.5l11 6.5-11 6.5z"/></svg>
+      </button>
+      <button aria-label="Record" style="width:44px;height:44px;border:1px solid #34353b;border-radius:8px;background:#27282d;display:flex;align-items:center;justify-content:center;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="#ff6b6b" aria-hidden="true"><circle cx="8" cy="8" r="6"/></svg>
+      </button>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">TEMPO</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500">120.00</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">TIME SIG</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500">4 / 4</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;width:120px">
+      <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">POSITION</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500">{{ barText }}</span>
+    </div>
+    <button style="height:36px;padding:0 14px;border:1px solid #34353b;border-radius:6px;background:#27282d;color:#ececef;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Loop</button>
+    <button style="height:36px;padding:0 14px;border:1px solid #34353b;border-radius:6px;background:#27282d;color:#ececef;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Snap: 1 bar</button>
+
+    <div style="flex:1"></div>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a1a2ab">44.1 kHz · 5.8 ms</span>
+  </header>
+
+  <div style="position:relative;flex:none">
+    <div style="display:flex;height:32px;background:#202125;border-bottom:1px solid #34353b">
+      <div style="width:220px;flex:none;box-sizing:border-box;padding:0 16px;display:flex;align-items:center;font-size:10px;letter-spacing:0.08em;color:#a1a2ab;border-right:1px solid #34353b">TRACKS</div>
+      <div style="position:relative;flex:1;min-width:0;display:flex;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a1a2ab">
+        <div style="position:absolute;top:0;bottom:0;left:25%;width:25%;background:rgba(255,122,61,0.22);border-left:2px solid #ff7a3d;border-right:2px solid #ff7a3d;box-sizing:border-box"></div>
+        <sc-for list="{{ bars }}" as="b" hint-placeholder-count="16">
+          <div style="position:relative;flex:1 1 0;min-width:0;box-sizing:border-box;padding:9px 6px;border-left:1px solid #34353b">{{ b.num }}</div>
+        </sc-for>
+      </div>
+    </div>
+
+    <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="4">
+      <div style="display:flex;height:112px;border-bottom:1px solid #34353b">
+        <div style="width:220px;flex:none;box-sizing:border-box;padding:12px 16px;background:#202125;border-right:1px solid #34353b;display:flex;flex-direction:column;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:12px;height:12px;border-radius:3px;background:{{ t.color }}"></span>
+            <span style="font-weight:600;font-size:14px">{{ t.name }}</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button aria-label="{{ t.muteLabel }}" style="width:32px;height:26px;border:1px solid #34353b;border-radius:5px;background:#27282d;color:#ececef;font:600 11px 'IBM Plex Sans',sans-serif;cursor:pointer">M</button>
+            <button aria-label="{{ t.soloLabel }}" style="width:32px;height:26px;border:1px solid #34353b;border-radius:5px;background:#27282d;color:#ececef;font:600 11px 'IBM Plex Sans',sans-serif;cursor:pointer">S</button>
+            <button aria-label="{{ t.armLabel }}" style="width:32px;height:26px;border:1px solid #34353b;border-radius:5px;background:#27282d;color:#ececef;font:600 11px 'IBM Plex Sans',sans-serif;cursor:pointer">R</button>
+            <span style="margin-left:auto;align-self:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a1a2ab">{{ t.db }} dB</span>
+          </div>
+        </div>
+        <div style="position:relative;flex:1;min-width:0;background-color:#17181b;background-image:linear-gradient(to right, #2c2d33 1px, transparent 1px);background-size:6.25% 100%">
+          <sc-for list="{{ t.clips }}" as="c" hint-placeholder-count="4">
+            <button onClick="{{ c.pick }}" aria-label="{{ c.label }}" style="position:absolute;top:8px;bottom:8px;left:{{ c.left }}%;width:{{ c.width }}%;box-sizing:border-box;padding:0;border:0;border-radius:5px;overflow:hidden;background:{{ t.color }};color:#17181b;text-align:left;cursor:pointer;box-shadow:{{ c.ring }}">
+              <span style="position:absolute;left:8px;top:6px;right:8px;font:600 12px 'IBM Plex Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</span>
+              <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true" style="position:absolute;left:0;right:0;bottom:4px;width:100%;height:56%">
+                <path d="{{ c.path }}" fill="none" stroke="rgba(23,24,27,0.6)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+              </svg>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+
+    <div style="display:flex;height:44px">
+      <div style="width:220px;flex:none;box-sizing:border-box;padding:0 16px;display:flex;align-items:center;background:#202125;border-right:1px solid #34353b">
+        <button style="height:30px;padding:0 12px;border:1px dashed #4a4b53;border-radius:6px;background:transparent;color:#a1a2ab;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">+ Audio track</button>
+      </div>
+      <div style="flex:1;min-width:0;display:flex;align-items:center;padding:0 16px;color:#a1a2ab">Drag a sample from the browser onto the timeline to create a clip</div>
+    </div>
+
+    <div style="position:absolute;left:220px;right:0;top:0;bottom:0;pointer-events:none">
+      <div style="position:absolute;top:0;bottom:0;left:{{ playLeft }}%;width:2px;background:#ececef"></div>
+    </div>
+  </div>
+
+  <section style="flex:1;min-height:0;box-sizing:border-box;background:#202125;border-top:1px solid #34353b;display:flex;flex-direction:column">
+    <div style="height:52px;flex:none;box-sizing:border-box;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid #34353b">
+      <span style="width:12px;height:12px;border-radius:3px;background:{{ selColor }}"></span>
+      <span style="font-weight:600;font-size:15px">{{ selName }}</span>
+      <span style="color:#a1a2ab">{{ selTrack }} · {{ selRange }}</span>
+      <div style="flex:1"></div>
+      <a href="Sampler.dc.html" style="display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:6px;border:1px solid #34353b;background:#27282d;color:#ececef;text-decoration:none;font-weight:500">Open in sample editor</a>
+    </div>
+    <div style="flex:1;min-height:0;box-sizing:border-box;display:flex;gap:16px;padding:16px">
+      <div style="width:232px;flex:none;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));grid-template-rows:repeat(2, minmax(0, 1fr));gap:8px">
+        <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">GAIN</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">0.0 dB</span></div>
+        <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">START</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">{{ selStart }}</span></div>
+        <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">FADE IN</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">0 ms</span></div>
+        <div style="border-radius:6px;background:#27282d;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">FADE OUT</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">0 ms</span></div>
+      </div>
+      <div style="position:relative;flex:1;min-width:0;border-radius:8px;overflow:hidden;background:#17181b">
+        <svg viewBox="0 0 960 120" preserveAspectRatio="none" role="img" aria-label="Selected clip waveform" style="position:absolute;left:0;top:0;width:100%;height:100%">
+          <path d="{{ gridPath }}" fill="none" stroke="#2c2d33" stroke-width="1" vector-effect="non-scaling-stroke"/>
+          <path d="{{ wavePath }}" fill="none" stroke="{{ selColor }}" stroke-width="2" vector-effect="non-scaling-stroke"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { playing: true, sel: { t: 0, i: 1 } };
+  }
+
+  wave(n, seed, vw, vh) {
+    let d = '';
+    const per = Math.max(1, n / 16);
+    const mid = vh / 2;
+    for (let i = 0; i < n; i++) {
+      const x = (i * (vw / n) + 1).toFixed(1);
+      const phase = (i % per) / per;
+      const env = Math.exp(-phase * 3.2);
+      const a = Math.min(1, (0.16 + 0.84 * env) * (0.55 + 0.45 * Math.abs(Math.sin(i * 0.73 + seed))));
+      d += 'M' + x + ' ' + (mid - a * (mid - 2)).toFixed(1) + 'V' + (mid + a * (mid - 2)).toFixed(1);
+    }
+    return d;
+  }
+
+  renderVals() {
+    const st = this.state;
+    const defs = [
+      { name: 'Drums', color: '#ff8f5a', db: '-4.5', clips: [[1, 4, 'Break 90'], [5, 4, 'Break 90'], [9, 4, 'Break 90 b'], [13, 3, 'Break 90'], [16, 1, 'Fill']] },
+      { name: 'Bass', color: '#4fd1c5', db: '-7.0', clips: [[5, 4, 'Sub C'], [9, 4, 'Sub F'], [13, 4, 'Sub C walk']] },
+      { name: 'Chops', color: '#b9a2ff', db: '-2.0', clips: [[3, 2, 'Keys Chop 1'], [5, 2, 'Keys Chop 2'], [7, 2, 'Keys Chop 3'], [11, 2, 'Keys Chop 1'], [13, 4, 'Reverse Keys']] },
+      { name: 'Vocal', color: '#f0d65f', db: '-10.5', clips: [[9, 4, 'Vox Phrase'], [15, 2, 'Vox Echo']] }
+    ];
+
+    const tracks = defs.map((t, ti) => ({
+      name: t.name,
+      color: t.color,
+      db: t.db,
+      muteLabel: 'Mute ' + t.name,
+      soloLabel: 'Solo ' + t.name,
+      armLabel: 'Arm ' + t.name,
+      clips: t.clips.map((c, ci) => ({
+        name: c[2],
+        label: c[2] + ', bar ' + c[0],
+        left: ((c[0] - 1) / 16 * 100).toFixed(3),
+        width: (c[1] / 16 * 100).toFixed(3),
+        ring: st.sel.t === ti && st.sel.i === ci ? '0 0 0 2px #ececef' : 'none',
+        path: this.wave(c[1] * 8, ti * 2 + ci * 0.9, 100, 40),
+        pick: () => this.setState({ sel: { t: ti, i: ci } })
+      }))
+    }));
+
+    const bars = [];
+    for (let i = 1; i <= 16; i++) { bars.push({ num: i }); }
+
+    const sd = defs[st.sel.t];
+    const sc = sd.clips[st.sel.i];
+    let grid = '';
+    for (let i = 0; i <= 16; i++) { grid += 'M' + i * 60 + ' 0V120'; }
+
+    return {
+      tracks: tracks,
+      bars: bars,
+      playBg: st.playing ? '#ff7a3d' : '#27282d',
+      playFg: st.playing ? '#17181b' : '#ececef',
+      onPlay: () => this.setState({ playing: !st.playing }),
+      onStop: () => this.setState({ playing: false }),
+      barText: st.playing ? '6 . 2 . 1' : '1 . 1 . 1',
+      playLeft: st.playing ? 32.5 : 0,
+      selName: sc[2],
+      selColor: sd.color,
+      selTrack: sd.name,
+      selRange: 'Bars ' + sc[0] + '–' + (sc[0] + sc[1] - 1),
+      selStart: sc[0] + ' . 1 . 1',
+      wavePath: this.wave(240, st.sel.t * 2 + st.sel.i * 0.9, 960, 120),
+      gridPath: grid
+    };
+  }
+}
+</script>
+</body>
+</html>

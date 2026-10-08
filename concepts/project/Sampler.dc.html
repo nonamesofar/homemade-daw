@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sample editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#17181b}
+a{color:inherit}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;box-sizing:border-box;display:flex;flex-direction:column;background:#17181b;color:#ececef;font-family:'IBM Plex Sans',sans-serif;font-size:13px">
+
+  <header style="display:flex;align-items:center;gap:20px;height:60px;flex:none;padding:0 16px;background:#202125;border-bottom:1px solid #34353b;box-sizing:border-box">
+    <a href="Main.dc.html" style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:6px;border:1px solid #34353b;background:#27282d;color:#ececef;text-decoration:none;font-weight:500">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#ececef" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2L4 7l5 5"/></svg>
+      <span>Session</span>
+    </a>
+    <span style="font-weight:600;font-size:16px">Break 90</span>
+    <span style="color:#a1a2ab">4 bars · 90 BPM · 44.1 kHz · stereo</span>
+    <div style="flex:1"></div>
+    <button style="display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 18px;border:1px solid #34353b;border-radius:8px;background:#27282d;color:#ececef;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="#ececef" aria-hidden="true"><path d="M3 2l9 5-9 5z"/></svg>
+      <span>Audition</span>
+    </button>
+  </header>
+
+  <div style="flex:1;min-height:0;box-sizing:border-box;padding:20px;display:flex;flex-direction:column;gap:16px">
+
+    <section style="height:336px;flex:none;display:flex;flex-direction:column;border-radius:10px;background:#202125;overflow:hidden">
+      <div style="height:56px;flex:none;box-sizing:border-box;display:flex;align-items:center;gap:20px;padding:0 16px;border-bottom:1px solid #34353b">
+        <div style="display:flex;gap:4px;padding:3px;background:#17181b;border-radius:8px">
+          <sc-for list="{{ modes }}" as="m" hint-placeholder-count="3">
+            <button onClick="{{ m.pick }}" style="height:32px;padding:0 14px;border:0;border-radius:6px;background:{{ m.bg }};color:{{ m.fg }};font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">{{ m.label }}</button>
+          </sc-for>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;color:#a1a2ab">
+          <span>Divisions</span>
+          <select style="color-scheme:dark;height:34px;border:1px solid #34353b;border-radius:6px;background:#17181b;color:#ececef;font:500 13px 'IBM Plex Sans',sans-serif;padding:0 8px">
+            <option>1/4</option>
+            <option>1/8</option>
+            <option selected>1/16</option>
+            <option>1/32</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;color:#a1a2ab">
+          <span>Sensitivity</span>
+          <input type="range" min="0" max="100" value="60" style="width:150px;accent-color:#ff7a3d">
+        </label>
+        <button style="height:36px;padding:0 16px;border:1px solid #34353b;border-radius:6px;background:#27282d;color:#ececef;font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">Auto-slice</button>
+        <div style="flex:1"></div>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#a1a2ab">16 slices</span>
+      </div>
+
+      <div style="height:30px;flex:none;display:flex">
+        <sc-for list="{{ slices }}" as="s" hint-placeholder-count="16">
+          <button aria-label="{{ s.label }}" onClick="{{ s.pick }}" style="flex:1 1 0;min-width:0;border:0;background:{{ s.bg }};color:{{ s.fg }};font:500 11px 'IBM Plex Mono',monospace;cursor:pointer">{{ s.num }}</button>
+        </sc-for>
+      </div>
+
+      <div style="position:relative;flex:1;min-height:0;background:#17181b">
+        <div style="position:absolute;top:0;bottom:0;left:{{ selLeft }}%;width:6.25%;background:rgba(255,122,61,0.2)"></div>
+        <svg viewBox="0 0 1280 200" preserveAspectRatio="none" role="img" aria-label="Waveform with slice markers" style="position:absolute;left:0;top:0;width:100%;height:100%">
+          <path d="{{ markerPath }}" fill="none" stroke="#5a5b63" stroke-width="1" vector-effect="non-scaling-stroke"/>
+          <path d="{{ wavePath }}" fill="none" stroke="#ff8f5a" stroke-width="2" vector-effect="non-scaling-stroke"/>
+        </svg>
+      </div>
+    </section>
+
+    <div style="flex:1;min-height:0;display:flex;gap:16px">
+
+      <section style="width:620px;flex:none;box-sizing:border-box;padding:20px;border-radius:10px;background:#202125;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font-weight:600;font-size:15px">Pads</span>
+          <span style="color:#a1a2ab">Click a pad or press its key to play a slice</span>
+        </div>
+        <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(4, minmax(0, 1fr));grid-template-rows:repeat(4, minmax(0, 1fr));gap:10px">
+          <sc-for list="{{ pads }}" as="p" hint-placeholder-count="16">
+            <button onClick="{{ p.pick }}" style="border:0;border-radius:8px;background:{{ p.bg }};color:{{ p.fg }};padding:12px;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;cursor:pointer">
+              <span style="font:500 22px 'IBM Plex Mono',monospace">{{ p.num }}</span>
+              <span style="font:500 12px 'IBM Plex Mono',monospace;color:{{ p.keyColor }}">{{ p.key }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="flex:1;min-width:0;box-sizing:border-box;padding:20px;border-radius:10px;background:#202125;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:12px;height:12px;border-radius:3px;background:#ff7a3d"></span>
+          <span style="font-weight:600;font-size:15px">Slice {{ selNum }}</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:8px">
+          <div style="border-radius:6px;background:#27282d;padding:10px 12px;display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">START</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">{{ startText }}</span></div>
+          <div style="border-radius:6px;background:#27282d;padding:10px 12px;display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">END</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">{{ endText }}</span></div>
+          <div style="border-radius:6px;background:#27282d;padding:10px 12px;display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">LENGTH</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">1 beat</span></div>
+          <div style="border-radius:6px;background:#27282d;padding:10px 12px;display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">PITCH</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">0 st</span></div>
+          <div style="border-radius:6px;background:#27282d;padding:10px 12px;display:flex;flex-direction:column;gap:4px"><span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">GAIN</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px">0.0 dB</span></div>
+          <button aria-pressed="{{ revPressed }}" onClick="{{ toggleReverse }}" style="border:1px solid #34353b;border-radius:6px;background:{{ revBg }};color:{{ revFg }};padding:10px 12px;text-align:left;display:flex;flex-direction:column;gap:4px;font:600 15px 'IBM Plex Sans',sans-serif;cursor:pointer"><span style="font-size:10px;letter-spacing:0.08em">REVERSE</span><span>{{ revText }}</span></button>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <span style="font-size:10px;letter-spacing:0.08em;color:#a1a2ab">PLAY MODE</span>
+          <div style="display:flex;gap:4px;padding:3px;background:#17181b;border-radius:8px;align-self:flex-start">
+            <sc-for list="{{ playModes }}" as="m" hint-placeholder-count="3">
+              <button onClick="{{ m.pick }}" style="height:34px;padding:0 16px;border:0;border-radius:6px;background:{{ m.bg }};color:{{ m.fg }};font:500 13px 'IBM Plex Sans',sans-serif;cursor:pointer">{{ m.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:1"></div>
+        <button style="height:48px;border:0;border-radius:8px;background:#ff7a3d;color:#17181b;font:600 14px 'IBM Plex Sans',sans-serif;cursor:pointer">Send slices to Session</button>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 2, mode: 'beat', playMode: 'oneshot', reverse: false };
+  }
+
+  wave(n) {
+    let d = '';
+    const per = n / 16;
+    for (let i = 0; i < n; i++) {
+      const x = (i * (1280 / n) + 2).toFixed(1);
+      const phase = (i % per) / per;
+      const env = Math.exp(-phase * 3.2);
+      const a = Math.min(1, (0.16 + 0.84 * env) * (0.55 + 0.45 * Math.abs(Math.sin(i * 0.73))));
+      d += 'M' + x + ' ' + (100 - a * 94).toFixed(1) + 'V' + (100 + a * 94).toFixed(1);
+    }
+    return d;
+  }
+
+  pos(i) {
+    return (Math.floor(i / 4) + 1) + ' . ' + ((i % 4) + 1) + ' . 1';
+  }
+
+  renderVals() {
+    const st = this.state;
+
+    const modes = [['beat', 'Beat'], ['transient', 'Transient'], ['manual', 'Manual']].map((m) => ({
+      label: m[1],
+      bg: st.mode === m[0] ? '#ececef' : 'transparent',
+      fg: st.mode === m[0] ? '#17181b' : '#a1a2ab',
+      pick: () => this.setState({ mode: m[0] })
+    }));
+
+    const playModes = [['oneshot', 'One-shot'], ['gate', 'Gate'], ['loop', 'Loop']].map((m) => ({
+      label: m[1],
+      bg: st.playMode === m[0] ? '#ececef' : 'transparent',
+      fg: st.playMode === m[0] ? '#17181b' : '#a1a2ab',
+      pick: () => this.setState({ playMode: m[0] })
+    }));
+
+    const slices = [];
+    for (let i = 0; i < 16; i++) {
+      const on = st.sel === i;
+      slices.push({
+        num: i + 1,
+        label: 'Select slice ' + (i + 1),
+        bg: on ? '#ff7a3d' : 'transparent',
+        fg: on ? '#17181b' : '#a1a2ab',
+        pick: () => this.setState({ sel: i })
+      });
+    }
+
+    const keys = [['1', '2', '3', '4'], ['Q', 'W', 'E', 'R'], ['A', 'S', 'D', 'F'], ['Z', 'X', 'C', 'V']];
+    const pads = [];
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        const idx = (3 - r) * 4 + c;
+        const on = st.sel === idx;
+        pads.push({
+          num: idx + 1,
+          key: keys[r][c],
+          bg: on ? '#ff7a3d' : '#27282d',
+          fg: on ? '#17181b' : '#ececef',
+          keyColor: on ? '#17181b' : '#a1a2ab',
+          pick: () => this.setState({ sel: idx })
+        });
+      }
+    }
+
+    let markers = '';
+    for (let i = 1; i < 16; i++) { markers += 'M' + i * 80 + ' 0V200'; }
+
+    return {
+      modes: modes,
+      playModes: playModes,
+      slices: slices,
+      pads: pads,
+      selNum: st.sel + 1,
+      selLeft: st.sel * 6.25,
+      startText: this.pos(st.sel),
+      endText: st.sel === 15 ? '5 . 1 . 1' : this.pos(st.sel + 1),
+      wavePath: this.wave(256),
+      markerPath: markers,
+      revPressed: st.reverse ? 'true' : 'false',
+      revBg: st.reverse ? '#ececef' : '#27282d',
+      revFg: st.reverse ? '#17181b' : '#ececef',
+      revText: st.reverse ? 'On' : 'Off',
+      toggleReverse: () => this.setState({ reverse: !st.reverse })
+    };
+  }
+}
+</script>
+</body>
+</html>

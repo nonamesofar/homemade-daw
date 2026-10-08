@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sampler DAW UX Draft</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #17181b; color: #ececef; font: 14px/1.4 system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; background: #202125; border-bottom: 1px solid #34353b; }
+  h1 { margin: 0 16px 0 0; font-size: 16px; }
+  nav { display: flex; gap: 4px; }
+  nav a { padding: 8px 14px; border-radius: 6px; color: #a1a2ab; text-decoration: none; }
+  nav a[aria-current="page"] { background: #ff7a3d; color: #17181b; font-weight: 600; }
+  #stage { overflow: auto; padding: 16px; }
+  iframe { display: block; width: 1440px; height: 900px; border: 0; border-radius: 8px; background: #17181b; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sampler DAW — UX draft v1</h1>
+  <nav aria-label="Boards">
+    <a href="#session" data-src="project/Main.dc.html">Session view</a>
+    <a href="#arrangement" data-src="project/Arrangement.dc.html">Arrangement view</a>
+    <a href="#sampler" data-src="project/Sampler.dc.html">Sample editor</a>
+  </nav>
+</header>
+<div id="stage"><iframe id="frame" title="Board"></iframe></div>
+<script>
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav a'));
+  var frame = document.getElementById('frame');
+  function show() {
+    var cur = links.filter(function (a) { return a.getAttribute('href') === location.hash; })[0] || links[0];
+    links.forEach(function (a) { a.removeAttribute('aria-current'); });
+    cur.setAttribute('aria-current', 'page');
+    frame.src = cur.dataset.src;
+  }
+  window.addEventListener('hashchange', show);
+  show();
+</script>
+</body>
+</html>
