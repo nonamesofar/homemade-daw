@@ -54,6 +54,13 @@ public:
     /** Reverses the clip, which makes the engine render a proxy file, and waits for it. */
     bool buildReverseProxy(int clip);
 
+    /**
+        Sets the clip to the Rubber Band melodic stretch mode at `speedRatio` (playback speed: 0.5 = half speed) and
+        renders its stretch proxy if the engine wants one. Returns the number of proxy files found in the edit's temp
+        folder afterwards; -1 if the clip does not exist. `usesProxy` tells whether the engine chose a proxy at all.
+    */
+    int buildStretchProxy(int clip, double speedRatio, bool& usesProxy);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;

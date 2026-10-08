@@ -194,4 +194,32 @@ bool EditLab::buildReverseProxy(int clipIndex)
     const auto dir = impl->edit->getTempDirectory(true);
     return Impl::waitFor([&] { return !dir.findChildFiles(juce::File::findFiles, false, "render_*.wav").isEmpty(); }, 20000);
 }
+
+int EditLab::buildStretchProxy(int clipIndex, double speedRatio, bool& usesProxy)
+{
+    auto* c = impl->clip(clipIndex);
+    usesProxy = false;
+    if (c == nullptr)
+        return -1;
+
+    c->setTimeStretchMode(te::TimeStretcher::rubberbandMelodic);
+    c->setSpeedRatio(speedRatio);
+    usesProxy = c->usesTimeStretchedProxy();
+    c->beginRenderingNewProxyIfNeeded();
+
+    const auto dir = impl->edit->getTempDirectory(true);
+    if (usesProxy)
+    {
+        // The proxy file appears empty while it is being written; wait for it to have content, then let the job wind down.
+        Impl::waitFor(
+            [&]
+            {
+                const auto files = dir.findChildFiles(juce::File::findFiles, false, "*.wav");
+                return !files.isEmpty() && files.getFirst().getSize() > 1000;
+            },
+            30000);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(500);
+    }
+    return dir.findChildFiles(juce::File::findFiles, false, "*.wav").size();
+}
 } // namespace sampler

@@ -26,16 +26,22 @@ add_executable(AtomicWriterProbe tools/AtomicWriterProbe.cpp)
 target_link_libraries(AtomicWriterProbe PRIVATE sampler_io)
 sampler_target_debuggable(AtomicWriterProbe)
 
-add_executable(sampler_engine_tests engine/playback.test.cpp engine/assumptions.test.cpp engine/integrity.test.cpp)
-add_dependencies(sampler_engine_tests AtomicWriterProbe)
-target_compile_definitions(sampler_engine_tests PRIVATE ATOMIC_WRITER_PROBE_PATH="$<TARGET_FILE:AtomicWriterProbe>")
+add_executable(sampler_engine_tests engine/playback.test.cpp engine/assumptions.test.cpp engine/integrity.test.cpp
+    engine/plugin_hosting.test.cpp)
+add_dependencies(sampler_engine_tests AtomicWriterProbe SamplerTestPlugin_VST3)
+target_compile_definitions(sampler_engine_tests PRIVATE
+    ATOMIC_WRITER_PROBE_PATH="$<TARGET_FILE:AtomicWriterProbe>"
+    TEST_PLUGIN_VST3_PATH="$<TARGET_FILE_DIR:SamplerTestPlugin_VST3>/../..")
 target_link_libraries(sampler_engine_tests PRIVATE
     sampler_engine
     sampler_io
+    sampler_platform
     Catch2::Catch2WithMain
     juce::juce_audio_formats
+    juce::juce_audio_processors
     juce::juce_cryptography
-    juce::juce_events)
+    juce::juce_events
+    juce::juce_gui_basics)
 sampler_target_debuggable(sampler_engine_tests)
 sampler_target_warnings(sampler_engine_tests)
 catch_discover_tests(sampler_engine_tests PROPERTIES LABELS engine)

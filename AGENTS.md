@@ -3,7 +3,7 @@
 Working name "Sampler". A solo hobby desktop DAW: import audio (wav/mp3/flac/ogg/m4a) or **capture computer audio** (e.g. a YouTube video in the browser), chop it into slices in a sample editor, play slices from 4x4 pads, arrange clips on several tracks, host third-party plugins (**Native Instruments Maschine 3** is the acceptance test), and export WAV/MP3/stems.
 
 ## Repo state (as of 2026-10-08)
-**No source code exists yet.** The next step is milestone **M0 (spike)**. The repo holds:
+Milestone **M0 (spike)** is nearly done: the build skeleton, CI, the spike app, probes, the JUCE test plugin and 40 tests exist (results in `docs/m0-findings.md`; only a listening check of the beats prototype is open). Every Tracktion assumption passed, so the Tracktion design stands and the custom-engine fallback is not needed. Next is **M1**. The repo holds:
 - `technical design/technical-design.md`: the authoritative design (v2). Section numbers below (e.g. "§6.4") refer to it. Read the relevant section before implementing a feature in depth; this file covers the decisions and rules that apply everywhere.
 - `technical design/tech-comparison-rust-vs-cpp.md`: why C++/JUCE/Tracktion was chosen. `technical design/archive/` holds the superseded v1 (Tauri/Rust/React). Do not use v1, except its §5 custom-engine design, which is the fallback if Tracktion fails an M0 check.
 - `concepts/`: HTML UX mocks (`index.html` opens Session, Arrangement and Sample editor boards from `concepts/project/*.dc.html`).
@@ -31,6 +31,15 @@ sampler-cli render proj.sdaw out.wav          # headless render (golden tests); 
 - Build `tracktion_engine` and `src/engine` optimised (`/O2`) **even in debug presets**, because debug Tracktion is too slow for audio.
 - Prerequisites: VS 2022 Desktop C++, CMake 3.28+, Ninja, Git LFS (golden WAVs live in LFS).
 - CI: GitHub Actions on `windows-latest` (the macOS job is TODO-MAC).
+
+## Progress tracking
+`ROADMAP.md` is the progress tracker: one section per milestone with checkboxes for scope items and exit criteria. Keep it current as part of the work, in the same branch and PR as the change:
+- When you propose a change for a milestone, fill in that milestone's `Change:` line.
+- Tick `[x]` an item only once it works and was verified (build, test, or manual check as the design requires). Never tick on intent. Leave it unticked and say why if only partly done.
+- Update "Current milestone" and "Last updated" when a milestone starts or its exit criteria are all met.
+- Log decisions (failed M0 checks, fallbacks, scope changes) in its Decisions log, and keep `AGENTS.md` / the design doc consistent if a decision changes a standing rule.
+- `/opsx:archive` and `/opsx:verify` should include a check that the matching ROADMAP items are ticked.
+- The design doc §15 stays the authority for scope. If scope changes, update both.
 
 ## Pull request descriptions
 Every PR description has exactly two sections, in this order:
@@ -98,7 +107,7 @@ JUCE formats for decoding (MP3 via `JUCE_USE_MP3AUDIOFORMAT`; M4A through our ow
 ## Roadmap (§15)
 M0 spike -> M1 core + import -> M2 arrangement -> M2b capture -> M3 sample editor -> M4 warp + export = **MVP** (import or capture -> chop -> arrange -> export, on Windows) -> **M5 plugins + MIDI (Maschine acceptance test)** -> M6 Session view (Tracktion clip launcher) -> M7 polish -> M8 input recording -> M9 effects + automation -> M10 tempo map. The app opens in Arrange until M6. Do not pull plugin work ahead of M5 (scope rule), apart from the Maschine load test in the M0 spike.
 
-**M0 must verify these Tracktion assumptions** (the design marks them "verify at M0"); write down a decision for each one that fails: clips keep beat positions on tempo change; relative paths survive moving a bundle; unknown `sampler_*` clip properties survive a round trip; proxies and thumbnails can be redirected into `cache/`; a multi-out rack runs the plugin once, not once per instance; JUCE's `WindowsMediaAudioFormat` coverage of M4A; whether process loopback works on build 19045.
+**M0 results for the Tracktion assumptions** (details and numbers in `docs/m0-findings.md`): clips keep beat positions on tempo change (pass: `SetTempo` needs no re-positioning); relative paths survive moving a bundle (pass, but the edit file must exist on disk before a relative reference is created); unknown `sampler_*` clip properties survive a round trip (pass: no `CLIPMETA` fallback needed); proxies and thumbnails can be redirected into `cache/` (pass: set the engine temp directory on every project open; a stretch proxy is 0 bytes while rendering, so wait before tearing the engine down); a multi-out rack runs the plugin once (pass: 4 output tracks, 1 `processBlock` per block); JUCE's `WindowsMediaAudioFormat` does not open M4A (M4A import descoped; Media Foundation reads it if wanted later); process loopback works on build 19045 (use it first, endpoint loopback as fallback). Other M0 findings that bind later work: the engine does not trim MP3 encoder delay (trim at import); wait for the engine's startup device scan before playing; a plugin must be in the engine's known-plugin list before Tracktion can load it by path; Rubber Band is built into the Tracktion module (`external/rubberband`).
 
 ## Testing (§13)
 Keep logic out of Components so Catch2 can test it on plain classes (snapping, hit-testing, viewport math, keyboard routing, track-reorder index math, drop-target resolution). Commands get property-style tests: random command sequences, invariants after each step, `undo(apply(x)) == x` on the serialised edit, save/load round trip. Golden renders run only on plugin-free projects. Test plugin hosting against a JUCE test plugin we build; Maschine is tested manually.

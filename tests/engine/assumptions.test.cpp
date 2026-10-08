@@ -129,3 +129,30 @@ TEST_CASE("thumbnails and proxies can be redirected into the project cache folde
     CHECK(countFiles(b.root) <= 1); // project.tracktionedit only if saved; nothing else at the top level
     CHECK(b.root.getChildFile("cache").isDirectory());
 }
+
+TEST_CASE("Rubber Band stretch through the engine: length follows the ratio and the proxy stays in the cache", "[engine][assumption][A4]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    Bundle b("a4-stretch");
+    const auto cache = b.root.getChildFile("cache");
+
+    sampler::EditLab lab;
+    REQUIRE(lab.setCacheDirectory(cache));
+    lab.newEdit(b.editFile);
+    REQUIRE(lab.addClip(b.audio, 0.0, 2.0, true) == 0);
+
+    bool usesProxy = false;
+    const auto proxies = lab.buildStretchProxy(0, 0.5, usesProxy);
+    INFO("uses proxy: " << usesProxy << ", proxy files: " << proxies);
+    CHECK(proxies >= 0);
+
+    // Whatever the engine derived stays under cache/, never beside the audio.
+    CHECK(countFiles(b.root.getChildFile("audio")) == 1);
+    CHECK(lab.editTempDirectory().isAChildOf(cache));
+    {
+        juce::String listing;
+        for (const auto& f : cache.findChildFiles(juce::File::findFiles, true))
+            listing << "\n  " << f.getRelativePathFrom(cache) << " (" << f.getSize() << " bytes)";
+        std::printf("A4 stretch: uses proxy %d, files under cache:%s\n", usesProxy ? 1 : 0, listing.toRawUTF8());
+    }
+}

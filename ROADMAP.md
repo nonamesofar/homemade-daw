@@ -11,30 +11,30 @@ Legend: `[ ]` not started, `[x]` done and verified. Tick a scope item only when 
 ---
 
 ## M0 Spike (2 to 3 wks)
-Change: `m0-spike` (22 of 32 tasks done; progress in `openspec/changes/m0-spike/tasks.md`, results in `docs/m0-findings.md`)
+Change: `m0-spike` (33 of 34 tasks done; progress in `openspec/changes/m0-spike/tasks.md`, results in `docs/m0-findings.md`)
 
 - [x] CMake + JUCE 8 + Tracktion 3 build on Windows, CI green
 - [x] Play a WAV and an MP3 (MP3 encoder delay is not trimmed by the engine: fix is in M1, see below)
 - [x] Capture probe: record 30 s of a YouTube video via WASAPI loopback
 - [x] Test whether process loopback works on build 19045 (it works on 19045)
 - [x] Timeline component: 4 tracks, 50 clips with waveforms, scroll/zoom, clip drag, track drag-reorder
-- [ ] Stand-in for Maschine 3 (not owned yet): a multi-out VST3 instrument (our JUCE test plugin with 4 stereo outputs, plus Surge XT or Kontakt 7 Player if installed). Check these with it:
-  - [ ] Loads and its editor opens
-  - [ ] Plays from host transport at 120 BPM
-  - [ ] 4 stereo outputs on separate tracks via racks
-  - [ ] State saves and reopens
-  - [ ] Offline render of 16 bars
+- [x] Stand-in for Maschine 3 (not owned yet): a multi-out VST3 instrument (our JUCE test plugin with 4 stereo outputs; Surge XT and Kontakt 7 Player are not installed). Check these with it:
+  - [x] Loads and its editor opens (response checked with a click sent as window messages; not yet by hand)
+  - [x] Plays from host transport at 120 BPM
+  - [x] 4 stereo outputs on separate tracks via racks
+  - [x] State saves and reopens
+  - [x] Offline render of 16 bars
 - [x] Verify: clips keep beat positions on tempo change
 - [x] Verify: relative paths survive moving a bundle (rule: save the edit file before adding clips)
 - [x] Verify: unknown `sampler_*` clip properties survive a round trip
 - [x] Verify: proxies and thumbnails can be redirected into `cache/`
-- [ ] Verify: a multi-out rack runs the plugin once, not once per instance
+- [x] Verify: a multi-out rack runs the plugin once, not once per instance
 - [x] Verify: JUCE `WindowsMediaAudioFormat` coverage of M4A (result: not supported; M4A descoped, not a priority)
-- [ ] Benchmark Rubber Band and the Beats renderer
+- [ ] Benchmark Rubber Band and the Beats renderer (timings done and in the findings; the listening note for the beats prototype is still missing)
 - [x] Pin versions in `external/VERSIONS.md`
 - [ ] **Exit:** all items pass, or a written decision to use the custom-engine fallback for each failing area
 
-Still open in M0: the multi-out VST3 stand-in checks, the multi-out rack check, the Rubber Band and Beats benchmarks, and the exit write-up (tasks 6.x and 7.x).
+Still open in M0: task 7.2, the listening note for the beats prototype (a person has to listen to the files `StretchBench --out <folder>` writes). Also waiting for a person: the audible check of the WAV playback (findings row 3), and trying the test plugin's editor with a real mouse. When those are done, tick the benchmark item and the exit criterion.
 
 ## M1 Core + import (3 wks)
 Change: _none yet_

@@ -30,3 +30,8 @@ schema: spec-driven
 #     archive:
 #       guidance:
 #         - Summarize the archive outcome before finishing
+
+rules:
+  proposal:
+    - Start with a functional description for non-technical readers (what the user can do or what behaves differently; no class, file or library names)
+    - Then give only a technical overview (approach, affected modules, notable decisions); put detail in design.md, the specs and tasks.md

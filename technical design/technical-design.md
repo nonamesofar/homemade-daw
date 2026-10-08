@@ -330,7 +330,7 @@ Inside `SlicePadPlugin::applyToBuffer` and anything else we run on the audio thr
 - **Formats:** VST3 everywhere, AU on macOS. CLAP and ARA in Later. VST2 and AAX are out of scope.
 - **Scanning:** `PluginService` scans the default VST3 folders (`C:\Program Files\Common Files\VST3`, `/Library/Audio/Plug-Ins/VST3`, AU registry) plus user folders, **in a child process** (`Sampler.exe --scan`), one plugin at a time with a timeout. Crashes and timeouts go on a blacklist. Results are saved to `plugins.xml`.
 - **Instances:** `te::ExternalPlugin` on a track. State (P6) is serialised by Tracktion into the edit XML.
-- **Multi-output (P5):** the instrument is wrapped in a **Tracktion Rack** whose outputs are the plugin's output buses. The main instrument track carries the rack with MIDI input; each extra output pair N gets an **output track** holding another instance of the same rack type set to output N (Tracktion's documented pattern for multi-out instruments). `Cmd::AddMultiOutTracks{track, count}` creates these tracks named "Maschine Out 2..16". Verify at M0 that the plugin runs once, not once per rack instance.
+- **Multi-output (P5):** the instrument is wrapped in a **Tracktion Rack** whose outputs are the plugin's output buses. The main instrument track carries the rack with MIDI input; each extra output pair N gets an **output track** holding another instance of the same rack type set to output N (Tracktion's documented pattern for multi-out instruments). `Cmd::AddMultiOutTracks{track, count}` creates these tracks named "Maschine Out 2..16". **Verified at M0:** the plugin runs once, not once per rack instance (one `processBlock` per block with 4 output tracks; rack output pins are numbered from 1, pin 0 is MIDI; see `docs/m0-findings.md`).
 - **MIDI (P2, P4):** MIDI clips on instrument tracks; hardware MIDI inputs and a **virtual "Pads" MIDI input** that the sample editor pads and the computer keyboard can feed, so the pads can also play Maschine.
 - **Editor windows (P7):** `PluginWindow` (a `juce::DocumentWindow` holding the plugin's `AudioProcessorEditor`), remembering position and size per plugin instance. A docked mode shows the editor inside the bottom detail panel. Window always stays on top of the main window but not of other apps.
 - **Latency:** PDC by Tracktion. Track headers show plugin latency when it is non-zero.
@@ -544,8 +544,8 @@ MyBeat.sdaw/
     project.autosave.tracktionedit   # 2 s after the last edit (debounced), at least every 60 s if dirty
     project.<timestamp>.tracktionedit  # rolling 10 backups, one per manual save
 ```
-- File references inside the edit are **relative to the bundle**, resolved through the edit's file path resolver. Verify at M0 that a moved bundle reopens without missing files.
-- Tracktion proxy and thumbnail locations are redirected into `cache/` (configure via the engine's `PropertyStorage`/temp directory; verify at M0).
+- File references inside the edit are **relative to the bundle**, resolved through the edit's file path resolver. **Verified at M0:** a moved bundle reopens without missing files, provided the edit file already exists on disk when a relative reference is created (save the new project at once).
+- Tracktion proxy and thumbnail locations are redirected into `cache/` (configure via the engine's `PropertyStorage`/temp directory; **verified at M0**: `TemporaryFileManager::setTempDirectory(cache)`, set on every project open).
 
 ### 9.2 The `SAMPLER` subtree (our data inside the edit)
 ```xml
@@ -565,7 +565,7 @@ MyBeat.sdaw/
   </SAMPLER>
 </EDIT>
 ```
-Clips carry our extra properties directly on Tracktion's clip node, for example `sampler_sourceId="src_3fa1c2d9" sampler_warpMode="beats" sampler_sourceBpm="90.0"`. Tracktion preserves unknown properties on round trip (verify at M0; if not, store them in `SAMPLER/CLIPMETA` keyed by clip id).
+Clips carry our extra properties directly on Tracktion's clip node, for example `sampler_sourceId="src_3fa1c2d9" sampler_warpMode="beats" sampler_sourceBpm="90.0"`. Tracktion preserves unknown properties on round trip (**verified at M0**; the `SAMPLER/CLIPMETA` fallback is not needed).
 
 ### 9.3 Versioning & migration
 - Tracktion upgrades its own edit format when it loads older edits.

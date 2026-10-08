@@ -39,18 +39,18 @@
 
 ## 6. Multi-out VST3 spike (manual; stand-in for Maschine 3)
 
-- [ ] 6.0 Build a JUCE test plugin (VST3 instrument, 4 stereo outputs, deterministic looping output, state that changes); verify it loads in a plugin host or the spike app
-- [ ] 6.1 Load the test plugin (and Surge XT / Kontakt 7 Player if installed) by fixed path on an instrument track and open its editor; verify the UI renders and responds, and record any activation or load issues
-- [ ] 6.2 Play a pattern from host transport at 120 BPM for 16 bars; verify it starts with the transport and stays in time
-- [ ] 6.3 Build the 4-output rack routing onto 4 tracks; verify each group is on its own track with its own meter, and confirm the plugin processes once per block (counter or CPU comparison)
-- [ ] 6.4 Save, close and reopen the project; verify the plugin state is restored
-- [ ] 6.5 Offline-render 16 bars including the plugin; verify timing against a real-time capture and record the result
-- [ ] 6.6 If any step in 6.1 to 6.5 fails with a third-party plugin, repeat it with the JUCE test plugin to separate host faults from plugin faults; record which
-- [ ] 6.7 Record in the findings the Maschine-specific checks deferred to M5 (very large state, editor resize, pattern drag-out)
+- [x] 6.0 Build a JUCE test plugin (VST3 instrument, 4 stereo outputs, deterministic looping output, state that changes); verify it loads in a plugin host or the spike app
+- [x] 6.1 Load the test plugin (and Surge XT / Kontakt 7 Player if installed) by fixed path on an instrument track and open its editor; verify the UI renders and responds, and record any activation or load issues (the other two are not installed; the response was checked with a click sent as window messages, not with a hand-moved mouse)
+- [x] 6.2 Play a pattern from host transport at 120 BPM for 16 bars; verify it starts with the transport and stays in time
+- [x] 6.3 Build the 4-output rack routing onto 4 tracks; verify each group is on its own track with its own meter, and confirm the plugin processes once per block (counter or CPU comparison)
+- [x] 6.4 Save, close and reopen the project; verify the plugin state is restored
+- [x] 6.5 Offline-render 16 bars including the plugin; verify timing against a real-time capture and record the result
+- [x] 6.6 If any step in 6.1 to 6.5 fails with a third-party plugin, repeat it with the JUCE test plugin to separate host faults from plugin faults; record which (not triggered: no third-party VST3 is installed, so nothing failed with one; recorded in the findings)
+- [x] 6.7 Record in the findings the Maschine-specific checks deferred to M5 (very large state, editor resize, pattern drag-out)
 
 ## 7. Benchmarks and exit gate
 
-- [ ] 7.1 Console benchmark of Rubber Band and Signalsmith stretch on a 4-bar loop and a 3-minute track; verify the timings are in the findings
+- [x] 7.1 Console benchmark of Rubber Band and Signalsmith stretch on a 4-bar loop and a 3-minute track; verify the timings are in the findings
 - [ ] 7.2 Prototype beat-preserving renderer (split at onsets, place, no stretch inside) timed on the same inputs; verify the timings and a listening note are in the findings
-- [ ] 7.3 Complete `docs/m0-findings.md`: every item has pass/fail/partial plus a decision for each failure (including any custom-engine fallback); verify no row is empty
-- [ ] 7.4 Update `AGENTS.md` repo-state section and the design doc's "verify at M0" markers with the outcomes; verify the text matches the findings
+- [x] 7.3 Complete `docs/m0-findings.md`: every item has pass/fail/partial plus a decision for each failure (including any custom-engine fallback); verify no row is empty
+- [x] 7.4 Update `AGENTS.md` repo-state section and the design doc's "verify at M0" markers with the outcomes; verify the text matches the findings
