@@ -3,15 +3,15 @@
 Source: `technical design/technical-design.md` §15 (the design doc stays authoritative for scope; this file tracks progress).
 Platform: Windows only for now (TODO-MAC). The MVP is M0 to M4.
 
-**Current milestone:** M0 Spike
-**Last updated:** 2026-10-08
+**Current milestone:** M1 Core + import
+**Last updated:** 2026-10-09
 
 Legend: `[ ]` not started, `[x]` done and verified. Tick a scope item only when it works and was checked; tick the exit criterion only when it was demonstrated. Put the OpenSpec change name in the `Change:` line when a proposal exists.
 
 ---
 
 ## M0 Spike (2 to 3 wks)
-Change: `m0-spike` (33 of 34 tasks done; progress in `openspec/changes/m0-spike/tasks.md`, results in `docs/m0-findings.md`)
+Change: `m0-spike` (34 of 34 tasks done; progress in `openspec/changes/m0-spike/tasks.md`, results in `docs/m0-findings.md`)
 
 - [x] CMake + JUCE 8 + Tracktion 3 build on Windows, CI green
 - [x] Play a WAV and an MP3 (MP3 encoder delay is not trimmed by the engine: fix is in M1, see below)
@@ -19,7 +19,7 @@ Change: `m0-spike` (33 of 34 tasks done; progress in `openspec/changes/m0-spike/
 - [x] Test whether process loopback works on build 19045 (it works on 19045)
 - [x] Timeline component: 4 tracks, 50 clips with waveforms, scroll/zoom, clip drag, track drag-reorder
 - [x] Stand-in for Maschine 3 (not owned yet): a multi-out VST3 instrument (our JUCE test plugin with 4 stereo outputs; Surge XT and Kontakt 7 Player are not installed). Check these with it:
-  - [x] Loads and its editor opens (response checked with a click sent as window messages; not yet by hand)
+  - [x] Loads and its editor opens (response checked with a click sent as window messages; the check by hand is moved to M5)
   - [x] Plays from host transport at 120 BPM
   - [x] 4 stereo outputs on separate tracks via racks
   - [x] State saves and reopens
@@ -30,11 +30,9 @@ Change: `m0-spike` (33 of 34 tasks done; progress in `openspec/changes/m0-spike/
 - [x] Verify: proxies and thumbnails can be redirected into `cache/`
 - [x] Verify: a multi-out rack runs the plugin once, not once per instance
 - [x] Verify: JUCE `WindowsMediaAudioFormat` coverage of M4A (result: not supported; M4A descoped, not a priority)
-- [ ] Benchmark Rubber Band and the Beats renderer (timings done and in the findings; the listening note for the beats prototype is still missing)
+- [x] Benchmark Rubber Band and the Beats renderer (timings and listening note in the findings)
 - [x] Pin versions in `external/VERSIONS.md`
-- [ ] **Exit:** all items pass, or a written decision to use the custom-engine fallback for each failing area
-
-Still open in M0: task 7.2, the listening note for the beats prototype (a person has to listen to the files `StretchBench --out <folder>` writes). Also waiting for a person: the audible check of the WAV playback (findings row 3), and trying the test plugin's editor with a real mouse. When those are done, tick the benchmark item and the exit criterion.
+- [x] **Exit:** all items pass, or a written decision to use the custom-engine fallback for each failing area (all pass; no fallback needed)
 
 ## M1 Core + import (3 wks)
 Change: _none yet_
@@ -105,7 +103,7 @@ Change: _none yet_
 - [ ] Instrument tracks and effect inserts
 - [ ] MIDI clips and MIDI input; virtual pads MIDI input; MIDI notes 36 to 51 map to pads
 - [ ] Multi-out tracks
-- [ ] Plugin windows (floating + docked)
+- [ ] Plugin windows (floating + docked); includes using a plugin editor by hand with a real mouse (moved from M0)
 - [ ] PDC display
 - [ ] Plugin offline render
 - [ ] `.mid` drop import
@@ -163,3 +161,4 @@ Record decisions that came out of a milestone (for example a failed M0 check and
 
 - 2026-10-08: Windows only for now; macOS parity deferred (TODO-MAC).
 - 2026-10-08: Maschine 3 is not owned yet. The M0 plugin checks use a multi-out VST3 stand-in (JUCE test plugin, Surge XT or Kontakt 7 Player). Maschine-specific checks (large state, editor resize, pattern drag-out) and the M5 acceptance test wait until Maschine 3 is available. The VST2 files on the dev machine are not used: no VST2 support.
+- 2026-10-09: M0 plugin editor check by hand (clicking the test plugin's window with a real mouse) is accepted as passing on the automated check (a click sent as window messages changed the parameter). Hands-on testing of plugin windows is done in M5, when plugin hosting is built for real.

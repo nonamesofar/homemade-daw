@@ -51,6 +51,6 @@
 ## 7. Benchmarks and exit gate
 
 - [x] 7.1 Console benchmark of Rubber Band and Signalsmith stretch on a 4-bar loop and a 3-minute track; verify the timings are in the findings
-- [ ] 7.2 Prototype beat-preserving renderer (split at onsets, place, no stretch inside) timed on the same inputs; verify the timings and a listening note are in the findings
+- [x] 7.2 Prototype beat-preserving renderer (split at onsets, place, no stretch inside) timed on the same inputs; verify the timings and a listening note are in the findings
 - [x] 7.3 Complete `docs/m0-findings.md`: every item has pass/fail/partial plus a decision for each failure (including any custom-engine fallback); verify no row is empty
 - [x] 7.4 Update `AGENTS.md` repo-state section and the design doc's "verify at M0" markers with the outcomes; verify the text matches the findings

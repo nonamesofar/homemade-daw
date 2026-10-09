@@ -2,8 +2,8 @@
 
 Working name "Sampler". A solo hobby desktop DAW: import audio (wav/mp3/flac/ogg/m4a) or **capture computer audio** (e.g. a YouTube video in the browser), chop it into slices in a sample editor, play slices from 4x4 pads, arrange clips on several tracks, host third-party plugins (**Native Instruments Maschine 3** is the acceptance test), and export WAV/MP3/stems.
 
-## Repo state (as of 2026-10-08)
-Milestone **M0 (spike)** is nearly done: the build skeleton, CI, the spike app, probes, the JUCE test plugin and 40 tests exist (results in `docs/m0-findings.md`; only a listening check of the beats prototype is open). Every Tracktion assumption passed, so the Tracktion design stands and the custom-engine fallback is not needed. Next is **M1**. The repo holds:
+## Repo state (as of 2026-10-09)
+Milestone **M0 (spike)** is done: the build skeleton, CI, the spike app, probes, the JUCE test plugin and 40 tests exist (results in `docs/m0-findings.md`). Every Tracktion assumption passed, so the Tracktion design stands and the custom-engine fallback is not needed. Next is **M1**. The repo holds:
 - `technical design/technical-design.md`: the authoritative design (v2). Section numbers below (e.g. "§6.4") refer to it. Read the relevant section before implementing a feature in depth; this file covers the decisions and rules that apply everywhere.
 - `technical design/tech-comparison-rust-vs-cpp.md`: why C++/JUCE/Tracktion was chosen. `technical design/archive/` holds the superseded v1 (Tauri/Rust/React). Do not use v1, except its §5 custom-engine design, which is the fallback if Tracktion fails an M0 check.
 - `concepts/`: HTML UX mocks (`index.html` opens Session, Arrangement and Sample editor boards from `concepts/project/*.dc.html`).
