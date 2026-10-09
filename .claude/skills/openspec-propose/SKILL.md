@@ -1,7 +1,7 @@
 ---
 name: openspec-propose
 description: Propose a new OpenSpec change with all artifacts generated in one step. Use when the user wants to quickly describe what they want to build and get a complete proposal with design, specs, and tasks ready for implementation. Also use when the user says "openspec propose" or "opsx propose".
-allowed-tools: Bash(openspec:*)
+allowed-tools: Bash(openspec:*), Bash(git:*)
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:
@@ -15,7 +15,7 @@ Propose a new change - create the change and generate all artifacts in one step.
 **Planning boundary**: This workflow creates planning artifacts only. The user request that selected or triggered this workflow authorizes planning only, even if it asks to build or fix something. Do not edit project code. After the planning artifacts are complete, stop. Do not start implementation in the same response, even if the initial request asks for it. Wait for a new user request after the artifacts are presented; then start the apply workflow.
 
 I'll create a change with the artifacts your schema defines. With the default spec-driven schema that is:
-- proposal.md (what & why)
+- proposal.md (what & why: starts with a plain-language functional description for non-technical readers, then a technical overview; details belong in the other files)
 - `specs/<capability-path>/spec.md` (what the system must do - a delta, not the main spec)
 - design.md (how)
 - tasks.md (implementation steps)
@@ -74,7 +74,14 @@ In both branches, never create the root as a side effect: do not run `openspec i
 
    Otherwise, omit `--schema` to preserve the configured default.
 
-4. **Create the change directory**
+4. **Create the git branch, then the change directory**
+
+   Every proposal lives on its own git branch, and all of its changes (planning artifacts now, implementation later in apply) are made on that branch, never on `main`.
+
+   Before creating the change, run `git status --short` and `git branch --show-current`:
+   - If a branch named `change/<name>` already exists, ask the user whether to switch to it and continue, or pick a different name.
+   - Otherwise create it from the current `main` (if you are on another branch, ask which base to use): `git switch -c "change/<name>"`. Uncommitted changes carry over to the new branch; mention them to the user if there are any.
+   - Do not commit or push unless the user asks.
 
    Choose one schema form below. If a registered store is selected, append `--store "<store-id>"` to that command and each later OpenSpec command shown below that accepts `--store`.
 
@@ -125,6 +132,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
       - If the `instruction` field delegates creation to a specific skill or command, invoke it to produce the artifact instead of writing the file yourself, then verify the artifact file exists at `resolvedOutputPath`
       - Otherwise create the artifact file using `template` as the structure and write it to `resolvedOutputPath`. If `resolvedOutputPath` is a glob, follow `instruction` to choose the concrete file path
       - Apply `context` and `rules` as constraints - but do NOT copy them into the file
+      - **proposal.md structure** (this overrides the template's section order where they differ): (1) start with a functional description written for non-technical people: what the user will be able to do or what will behave differently, in plain language, with no class names, file names, libraries or internals; (2) then a short technical overview (approach, affected modules, notable decisions). Keep the technical part to an overview and put the detail in `design.md`, the specs and `tasks.md`; do not duplicate it in the proposal
       - Show brief progress: "Created <artifact-id>"
 
    b. **Continue until every artifact in the required set exists (not just `apply.requires`)**
@@ -149,7 +157,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
 **Output**
 
 After completing all artifacts, summarize:
-- Change name and location
+- Change name, git branch and location
 - List of artifacts created with brief descriptions, plus any conditional artifact you skipped and why
 - What's ready: "All artifacts needed for implementation are ready."
 - Prompt: "The artifacts are ready for review. When you are ready, run `/opsx:apply` or ask me to apply this change."
@@ -172,3 +180,4 @@ After completing all artifacts, summarize:
 - Ask about ambiguities that would materially change scope, externally observable behavior, compatibility, or acceptance criteria; for minor details, make reasonable assumptions and record them
 - If a change with that name already exists, ask if user wants to continue it or create a new one
 - Verify each artifact file exists after writing before proceeding to next
+- Never write the change on `main`: create the `change/<name>` branch first (step 4)
