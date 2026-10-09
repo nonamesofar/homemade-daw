@@ -1,12 +1,12 @@
 # Building (Windows)
 
-Prerequisites: Visual Studio 2022 (or Build Tools) with the C++ desktop workload, CMake 3.28+, Ninja, Git LFS.
+Prerequisites: Visual Studio 2022 or newer (or Build Tools; CI uses the newest on `windows-latest`) with the C++ desktop workload, CMake 3.28+, Ninja, Git LFS.
 
 ```
 git clone --recurse-submodules <repo>
 ```
 
-Run the commands from an "x64 Native Tools Command Prompt for VS 2022" (the presets use the `cl` on the PATH):
+Run the commands from an "x64 Native Tools Command Prompt for VS" (the presets use the `cl` on the PATH):
 
 ```
 cmake --preset windows-msvc-debug
@@ -14,7 +14,7 @@ cmake --build --preset windows-msvc-debug
 ctest --preset windows-msvc-debug
 ```
 
-Or let the script find VS 2022 (any edition, via vswhere) and set up the environment: `powershell -File scripts/build.ps1 -Preset windows-msvc-debug -Test`.
+Or let the script find the newest VS (any edition, via vswhere) and set up the environment: `powershell -File scripts/build.ps1 -Preset windows-msvc-debug -Test`.
 
 Catch2 tags are ctest labels. Every test runs by default; two kinds are noisy and can be left out:
 

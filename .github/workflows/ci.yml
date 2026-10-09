@@ -13,8 +13,7 @@ concurrency:
 
 jobs:
   windows:
-    # Pinned: the toolchain decision is VS 2022 / v143. windows-latest moved to VS 2026 (MSVC 19.51) in 2026.
-    runs-on: windows-2022
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
@@ -32,7 +31,7 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
-        run: ctest --preset ${{ matrix.preset }} --output-junit test-results.xml
+        run: ctest --preset ${{ matrix.preset }} -LE hardware --output-junit test-results.xml
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

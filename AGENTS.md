@@ -12,7 +12,7 @@ Milestone **M0 (spike)** is done: the build skeleton, CI, the spike app, probes,
 The design doc's "Changes in v2" block and some milestone rows still say Windows + macOS parity is a hard requirement. **That is superseded** by the 2026-10-08 update (below).
 
 ## Standing decisions (do not reopen without the user)
-- **Stack:** C++20 (MSVC v143), **JUCE 8** for the app and the UI, **Tracktion Engine 3** as the engine (edit model, transport, clips, warp, mixer, MIDI, plugin hosting, racks, PDC, recording, automation, rendering, undo). CMake 3.28+ with Ninja, dependencies as pinned git submodules in `external/` (record versions in `external/VERSIONS.md`). Catch2 for tests.
+- **Stack:** C++20 (MSVC, newest VS: 2022 or later), **JUCE 8** for the app and the UI, **Tracktion Engine 3** as the engine (edit model, transport, clips, warp, mixer, MIDI, plugin hosting, racks, PDC, recording, automation, rendering, undo). CMake 3.28+ with Ninja, dependencies as pinned git submodules in `external/` (record versions in `external/VERSIONS.md`). Catch2 for tests.
 - **The mocks are drawings only.** They define layout and behaviour, never technology. Do not treat "reusing the HTML" as an argument for a web or WebView UI. The UI is JUCE Components with a custom `SamplerLookAndFeel`.
 - **Hosting plugins is a core requirement.** VST3 (plus AU once on macOS). No VST2, AAX, CLAP or ARA (CLAP/ARA are Later). Plugins run in process; **scanning runs out of process** (`Sampler.exe --scan <path>`) with a timeout and a blacklist.
 - **Platform: Windows only for now (TODO-MAC).** The user has no Mac. Build and verify on Windows 10/11 x64 only. Do not require Mac verification, macOS CI, AU, Core Audio taps or a `.dmg` until the user says they have a Mac. Then the parity rule comes back (every milestone verified on both platforms, §12.1). Keep the code portable anyway (rules below).
@@ -29,7 +29,7 @@ sampler-cli render proj.sdaw out.wav          # headless render (golden tests); 
 ```
 - Top-level CMake options: `SAMPLER_ASIO`, `SAMPLER_RUBBERBAND`. Static MSVC runtime. Warnings as errors, clang-tidy, ASan (`/fsanitize=address`) in CI.
 - Build `tracktion_engine` and `src/engine` optimised (`/O2`) **even in debug presets**, because debug Tracktion is too slow for audio.
-- Prerequisites: VS 2022 Desktop C++, CMake 3.28+, Ninja, Git LFS (golden WAVs live in LFS).
+- Prerequisites: VS 2022 or newer Desktop C++, CMake 3.28+, Ninja, Git LFS (golden WAVs live in LFS).
 - CI: GitHub Actions on `windows-latest` (the macOS job is TODO-MAC).
 
 ## Progress tracking

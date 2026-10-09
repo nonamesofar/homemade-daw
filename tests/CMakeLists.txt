@@ -50,5 +50,7 @@ sampler_target_warnings(sampler_engine_tests)
 # Catch2 tags become ctest labels ([engine], [io], [plugin], ...). Every test runs by default; two labels let a run
 # leave out the noisy ones with `ctest -LE "realtime|gui"`:
 #   realtime: plays sound on the output device and records it through loopback.
+#   hardware: needs a real audio device and its timing (so it can flake by a millisecond or two); CI leaves it out
+#             with `-LE hardware`. Run it locally.
 #   gui:      opens a window and posts mouse clicks to it.
 catch_discover_tests(sampler_engine_tests ADD_TAGS_AS_LABELS)

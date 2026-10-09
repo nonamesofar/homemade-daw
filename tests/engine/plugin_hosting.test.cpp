@@ -321,7 +321,7 @@ TEST_CASE("plugin state survives save and reopen, directly and inside a rack", "
 }
 
 TEST_CASE("real-time playback: transport sync, independent meters and timing against the offline render",
-          "[engine][plugin][realtime]")
+          "[engine][plugin][realtime][hardware]")
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
     std::setvbuf(stdout, nullptr, _IONBF, 0);
