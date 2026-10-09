@@ -140,55 +140,57 @@ public:
     {
         if (isRecording())
             return juce::Result::fail("already recording");
+        stop(); // clean up after a capture that ended by itself (device lost) and was never stopped
 
         destinationFile = destination;
         captureOptions = options;
         startResult = juce::Result::ok();
         started.reset();
-        statsData = {};
+        streamStarted = false;
+        {
+            const juce::ScopedLock lock(statsLock);
+            statsData = {};
+        }
         peak = 0.0f;
         silenceFrames = 0;
+        silenceDropped = 0;
         framesWritten = 0;
         overruns = 0;
         gapFills = 0;
         largestGap = 0;
+        discontinuities = 0;
+        writeFailed = false;
         captureFinished = false;
 
         captureThread = std::make_unique<CaptureThread>(*this);
         captureThread->startThread(juce::Thread::Priority::highest);
 
         // Wait until the capture thread has either started the stream or failed.
-        if (!started.wait(10000))
+        const bool answered = started.wait(10000);
+        if (!answered || startResult.failed())
         {
-            stop();
-            return juce::Result::fail("timed out starting capture");
-        }
-        if (startResult.failed())
-        {
-            captureThread->stopThread(2000);
-            captureThread.reset();
-            return startResult;
+            const auto result = answered ? startResult : juce::Result::fail("timed out starting capture");
+            stopThreads();                // also stops the writer if the file was already open
+            destinationFile.deleteFile(); // no half-made recording is left behind
+            return result;
         }
         return juce::Result::ok();
     }
 
     juce::Result stop() override
     {
-        if (captureThread == nullptr)
+        if (captureThread == nullptr && writerThread == nullptr)
             return juce::Result::ok();
 
-        captureThread->signalThreadShouldExit();
-        SetEvent(captureThread->wakeEvent);
-        captureThread->stopThread(5000);
-        captureThread.reset();
+        stopThreads();
 
-        captureFinished = true;
-        if (writerThread != nullptr)
+        const juce::ScopedLock lock(statsLock);
+        if (writeFailed && !statsData.writeFailed)
         {
-            writerThread->stopThread(10000);
-            writerThread.reset();
+            statsData.writeFailed = true;
+            appendError("writing " + destinationFile.getFileName() + " failed (disk full?): the recording is incomplete");
         }
-        return juce::Result::ok();
+        return statsData.error.isEmpty() ? juce::Result::ok() : juce::Result::fail(statsData.error);
     }
 
     bool isRecording() const override { return captureThread != nullptr && captureThread->isThreadRunning(); }
@@ -199,9 +201,12 @@ public:
         auto s = statsData;
         s.framesWritten = framesWritten;
         s.silenceFramesInserted = silenceFrames;
+        s.silenceFramesDropped = silenceDropped;
         s.overruns = overruns;
         s.gapFills = gapFills;
         s.largestGapFrames = largestGap;
+        s.discontinuities = discontinuities;
+        s.writeFailed = s.writeFailed || writeFailed;
         s.peak = peak;
         return s;
     }
@@ -219,12 +224,14 @@ private:
         void run() override
         {
             juce::AudioBuffer<float> block(owner.channels, 4096);
+            bool failed = false;
             for (;;)
             {
                 const auto ready = owner.fifo->getNumReady();
                 if (ready == 0)
                 {
-                    if (owner.captureFinished)
+                    // Everything recorded is written: finish once capture is over or we are asked to exit.
+                    if (owner.captureFinished || threadShouldExit())
                         break;
                     wait(10);
                     continue;
@@ -240,7 +247,13 @@ private:
                         block.copyFrom(c, size1, owner.ring, c, start2, size2);
                 }
                 owner.fifo->finishedRead(size1 + size2);
-                writer->writeFromAudioSampleBuffer(block, 0, size1 + size2);
+
+                // After a failed write keep emptying the ring (so capture does not overrun), but stop writing.
+                if (!failed && !writer->writeFromAudioSampleBuffer(block, 0, size1 + size2))
+                {
+                    failed = true;
+                    owner.writeFailed = true;
+                }
             }
             writer.reset(); // flushes and finalises the WAV header
         }
@@ -270,8 +283,16 @@ private:
 
             if (result.failed())
             {
-                owner.startResult = result;
-                owner.started.signal(); // no-op if already signalled
+                if (!owner.streamStarted)
+                {
+                    owner.startResult = result;
+                    owner.started.signal();
+                }
+                else
+                {
+                    const juce::ScopedLock lock(owner.statsLock);
+                    owner.appendError(result.getErrorMessage());
+                }
             }
 
             if (mmcss != nullptr)
@@ -289,7 +310,7 @@ private:
             juce::String processFailure;
             bool processLoopback = false;
             double rate = 0.0;
-            int channels = 2;
+            int channelCount = 2;
 
             if (owner.captureOptions.excludeOwnProcess)
             {
@@ -319,7 +340,7 @@ private:
                     return juce::Result::fail("cannot read the output device format");
                 format = mix;
                 rate = static_cast<double>(mix->nSamplesPerSec);
-                channels = static_cast<int>(mix->nChannels);
+                channelCount = static_cast<int>(mix->nChannels);
             }
             else
             {
@@ -335,7 +356,7 @@ private:
                 wanted.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
                 wanted.SubFormat = kSubtypeIeeeFloat;
                 format = &wanted.Format;
-                channels = 2;
+                channelCount = 2;
             }
 
             const bool isFloat = [&]
@@ -381,7 +402,7 @@ private:
                 return juce::Result::fail("cannot get the capture service");
             }
 
-            if (!owner.openOutput(rate, channels))
+            if (!owner.openOutput(rate, channelCount))
             {
                 CloseHandle(bufferEvent);
                 return juce::Result::fail("cannot create " + owner.destinationFile.getFullPathName());
@@ -392,59 +413,85 @@ private:
                 owner.statsData.mode = processLoopback ? "process-loopback" : "endpoint-loopback";
                 owner.statsData.processLoopbackFailure = processFailure;
                 owner.statsData.sampleRate = rate;
-                owner.statsData.channels = channels;
+                owner.statsData.channels = channelCount;
             }
 
             const auto qpcStart = qpcNow100ns();
-            hr = client->Start();
+            hr = owner.captureOptions.simulateStreamStartFailure ? E_FAIL : client->Start();
             if (FAILED(hr))
             {
                 CloseHandle(bufferEvent);
-                return juce::Result::fail(hresultText("Start failed", hr));
+                return juce::Result::fail(hresultText("Start failed", hr)); // start() stops the writer, deletes the file
             }
+            owner.streamStarted = true;
             owner.startResult = juce::Result::ok();
             owner.started.signal();
 
             HANDLE handles[2] = {bufferEvent, wakeEvent};
             std::vector<float> floats;
 
-            while (!threadShouldExit())
+            while (!threadShouldExit() && SUCCEEDED(hr))
             {
                 // Silent periods raise no event, hence the timeout.
                 WaitForMultipleObjects(2, handles, FALSE, 50);
-                drain(*captureClient.Get(), qpcStart, rate, channels, isFloat, bitsPerSample, floats);
+                hr = drain(*captureClient.Get(), qpcStart, rate, channelCount, isFloat, floats);
             }
 
             client->Stop();
-            drain(*captureClient.Get(), qpcStart, rate, channels, isFloat, bitsPerSample, floats);
+            if (SUCCEEDED(hr))
+                hr = drain(*captureClient.Get(), qpcStart, rate, channelCount, isFloat, floats);
+            CloseHandle(bufferEvent);
+
+            if (FAILED(hr))
+            {
+                // The device went away (or the stream broke): what was recorded so far stays in the file.
+                if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
+                {
+                    const juce::ScopedLock lock(owner.statsLock);
+                    owner.statsData.deviceLost = true;
+                    return juce::Result::fail(hresultText("the output device went away; capture stopped", hr));
+                }
+                return juce::Result::fail(hresultText("capture failed; capture stopped", hr));
+            }
 
             // Silence at the end (nothing played until stop) still counts as recorded time.
             const auto elapsedFrames = static_cast<juce::int64>(static_cast<double>(qpcNow100ns() - qpcStart) * rate / 1.0e7);
             owner.fillSilenceUpTo(elapsedFrames);
-
-            CloseHandle(bufferEvent);
             return juce::Result::ok();
         }
 
-        void drain(IAudioCaptureClient& captureClient, juce::int64 qpcStart, double rate, int channels, bool isFloat,
-                   int bitsPerSample, std::vector<float>& floats)
+        /** Reads every packet the device has. Returns the first failure (e.g. device lost) or S_OK. */
+        HRESULT drain(IAudioCaptureClient& captureClient, juce::int64 qpcStart, double rate, int channelCount, bool isFloat,
+                      std::vector<float>& floats)
         {
-            UINT32 packetFrames = 0;
-            while (SUCCEEDED(captureClient.GetNextPacketSize(&packetFrames)) && packetFrames > 0)
+            for (;;)
             {
+                UINT32 packetFrames = 0;
+                HRESULT hr = captureClient.GetNextPacketSize(&packetFrames);
+                if (FAILED(hr))
+                    return hr;
+                if (packetFrames == 0)
+                    return S_OK;
+
                 BYTE* data = nullptr;
                 UINT32 frames = 0;
                 DWORD bufferFlags = 0;
                 UINT64 devicePosition = 0, qpcPosition = 0;
-                if (FAILED(captureClient.GetBuffer(&data, &frames, &bufferFlags, &devicePosition, &qpcPosition)))
-                    return;
+                hr = captureClient.GetBuffer(&data, &frames, &bufferFlags, &devicePosition, &qpcPosition);
+                if (FAILED(hr))
+                    return hr;
+                if (hr == AUDCLNT_S_BUFFER_EMPTY)
+                    return S_OK;
+
+                if ((bufferFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0)
+                    ++owner.discontinuities;
 
                 // Fill the gap before this packet (nothing was playing) with silence.
                 const auto packetFrame = static_cast<juce::int64>(static_cast<double>(static_cast<juce::int64>(qpcPosition) - qpcStart) * rate / 1.0e7);
                 owner.fillSilenceUpTo(packetFrame);
 
-                floats.assign(static_cast<size_t>(frames) * static_cast<size_t>(channels), 0.0f);
-                if (!(bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) && data != nullptr)
+                floats.assign(static_cast<size_t>(frames) * static_cast<size_t>(channelCount), 0.0f);
+                if ((bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) == 0 && data != nullptr)
                 {
                     const auto count = floats.size();
                     if (isFloat)
@@ -458,10 +505,11 @@ private:
                             floats[i] = static_cast<float>(s[i]) / 32768.0f;
                     }
                 }
-                (void) bitsPerSample;
 
                 owner.push(floats.data(), static_cast<int>(frames));
-                captureClient.ReleaseBuffer(frames);
+                hr = captureClient.ReleaseBuffer(frames);
+                if (FAILED(hr))
+                    return hr;
             }
         }
 
@@ -469,6 +517,31 @@ private:
     };
 
     //==============================================================================
+    /** Joins the capture thread, then lets the writer drain the ring and finish the file. */
+    void stopThreads()
+    {
+        if (captureThread != nullptr)
+        {
+            captureThread->signalThreadShouldExit();
+            SetEvent(captureThread->wakeEvent);
+            captureThread->stopThread(5000);
+            captureThread.reset();
+        }
+
+        captureFinished = true;
+        if (writerThread != nullptr)
+        {
+            writerThread->stopThread(10000);
+            writerThread.reset();
+        }
+    }
+
+    /** Adds a message to statsData.error (caller holds statsLock). */
+    void appendError(const juce::String& message)
+    {
+        statsData.error = statsData.error.isEmpty() ? message : statsData.error + "; " + message;
+    }
+
     bool openOutput(double rate, int channelCount)
     {
         channels = channelCount;
@@ -530,22 +603,42 @@ private:
         framesWritten += frames;
     }
 
-    /** If fewer than `targetFrame` frames have been recorded, pads with silence (ignores gaps under 10 ms: timestamp jitter). */
+    /**
+        If fewer than `targetFrame` frames have been recorded, pads with silence (ignores gaps under 10 ms: timestamp
+        jitter). Waits for the writer when the ring is full, since the silence must not be dropped; but once capture is
+        being stopped it waits at most 1 s more, then gives up and counts what it could not insert.
+    */
     void fillSilenceUpTo(juce::int64 targetFrame)
     {
-        const auto tolerance = static_cast<juce::int64>(statsData.sampleRate / 100.0);
+        const auto tolerance = static_cast<juce::int64>(statsData.sampleRate / 100.0); // written by this thread only
         auto missing = targetFrame - framesWritten;
         if (missing <= tolerance)
             return;
         const juce::int64 before = framesWritten;
 
         std::vector<float> zeros(static_cast<size_t>(juce::jmin<juce::int64>(missing, 8192)) * static_cast<size_t>(channels), 0.0f);
+        bool exitSeen = false;
+        juce::uint32 exitSeenAt = 0;
         while (missing > 0)
         {
             const auto n = static_cast<int>(juce::jmin<juce::int64>(missing, 8192));
             if (fifo->getFreeSpace() < n)
             {
-                juce::Thread::sleep(2); // let the writer catch up; the silence must not be dropped
+                if (juce::Thread::currentThreadShouldExit())
+                {
+                    const auto now = juce::Time::getMillisecondCounter();
+                    if (!exitSeen)
+                    {
+                        exitSeen = true;
+                        exitSeenAt = now;
+                    }
+                    else if (now - exitSeenAt > 1000)
+                    {
+                        silenceDropped += missing;
+                        break;
+                    }
+                }
+                juce::Thread::sleep(2); // let the writer catch up
                 continue;
             }
             push(zeros.data(), n);
@@ -553,7 +646,7 @@ private:
             missing -= n;
         }
         ++gapFills;
-        largestGap = juce::jmax<juce::int64>(largestGap, targetFrame - before);
+        largestGap = juce::jmax<juce::int64>(largestGap, framesWritten - before);
     }
 
     //==============================================================================
@@ -561,6 +654,7 @@ private:
     CaptureOptions captureOptions;
     juce::Result startResult = juce::Result::ok();
     juce::WaitableEvent started;
+    std::atomic<bool> streamStarted{false};
 
     int channels = 2;
     int fifoSize = 0;
@@ -576,9 +670,12 @@ private:
     std::atomic<float> peak{0.0f};
     std::atomic<juce::int64> framesWritten{0};
     std::atomic<juce::int64> silenceFrames{0};
+    std::atomic<juce::int64> silenceDropped{0};
     std::atomic<int> overruns{0};
     std::atomic<int> gapFills{0};
     std::atomic<juce::int64> largestGap{0};
+    std::atomic<int> discontinuities{0};
+    std::atomic<bool> writeFailed{false};
 };
 
 std::unique_ptr<ICaptureSource> createCaptureSource() { return std::make_unique<WasapiLoopbackCapture>(); }

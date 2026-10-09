@@ -13,7 +13,7 @@ Legend: `[ ]` not started, `[x]` done and verified. Tick a scope item only when 
 ## M0 Spike (2 to 3 wks)
 Change: `m0-spike` (34 of 34 tasks done; progress in `openspec/changes/m0-spike/tasks.md`, results in `docs/m0-findings.md`)
 
-- [x] CMake + JUCE 8 + Tracktion 3 build on Windows, CI green
+- [x] CMake + JUCE 8 + Tracktion 3 build on Windows, CI green (CI regressed on 2026-10-08 when windows-latest moved to VS 2026; fix in the working tree, not yet verified on CI)
 - [x] Play a WAV and an MP3 (MP3 encoder delay is not trimmed by the engine: fix is in M1, see below)
 - [x] Capture probe: record 30 s of a YouTube video via WASAPI loopback
 - [x] Test whether process loopback works on build 19045 (it works on 19045)
@@ -162,3 +162,7 @@ Record decisions that came out of a milestone (for example a failed M0 check and
 - 2026-10-08: Windows only for now; macOS parity deferred (TODO-MAC).
 - 2026-10-08: Maschine 3 is not owned yet. The M0 plugin checks use a multi-out VST3 stand-in (JUCE test plugin, Surge XT or Kontakt 7 Player). Maschine-specific checks (large state, editor resize, pattern drag-out) and the M5 acceptance test wait until Maschine 3 is available. The VST2 files on the dev machine are not used: no VST2 support.
 - 2026-10-09: M0 plugin editor check by hand (clicking the test plugin's window with a real mouse) is accepted as passing on the automated check (a click sent as window messages changed the parameter). Hands-on testing of plugin windows is done in M5, when plugin hosting is built for real.
+- 2026-10-09: CI regressed: windows-latest moved to VS 2026 (MSVC 19.51), whose C4458 in JUCE's VST3 hosting code failed the build because JUCE sources compiled inside our /WX targets. CI is now pinned to `windows-2022` (the toolchain decision is VS 2022 / v143), with debug and release jobs.
+- 2026-10-09: JUCE and Tracktion are compiled once, in `sampler_juce` and `sampler_tracktion` (`cmake/SamplerJuce.cmake`): one set of JUCE settings, /O2 even in Debug, no /WX, headers included as external. Only `sampler_engine` links `sampler_tracktion`, so CMake enforces "Tracktion only in src/engine". Before, every target compiled its own JUCE copy (about 12 copies of juce_core with different settings).
+- 2026-10-09: Tracktion's `EditFileOperations::save` is not atomic (it deletes the edit file, then moves the new one in). The project file is saved by our `saveEditAtomically` (temp file, flush, one replacing rename) instead; findings row A8 corrected.
+- 2026-10-09: The capture mute moved out of the edit: a global output processor on Tracktion's device manager silences the device output, so muting is not undoable, is never saved in a project and survives loading a file. It used to set the master volume to 0 in the edit.

@@ -8,6 +8,8 @@ project(Sampler VERSION 0.0.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# No C++20 named modules in this project: skip the per-file module dependency scan (one extra step per source).
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 option(SAMPLER_ASIO "Build with ASIO support (needs external/asiosdk)" OFF)
@@ -26,6 +28,7 @@ add_subdirectory(external/tracktion_engine/modules)
 add_subdirectory(external/Catch2)
 
 include(cmake/SamplerTargets.cmake)
+include(cmake/SamplerJuce.cmake)
 
 add_subdirectory(src)
 add_subdirectory(apps)

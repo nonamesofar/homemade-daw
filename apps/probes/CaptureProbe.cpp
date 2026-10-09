@@ -102,7 +102,12 @@ void printStats(const sampler::platform::CaptureStats& s)
                 s.mode.toRawUTF8(), s.sampleRate, s.channels, static_cast<long long>(s.framesWritten),
                 s.framesWritten / juce::jmax(1.0, s.sampleRate), static_cast<long long>(s.silenceFramesInserted),
                 s.silenceFramesInserted / juce::jmax(1.0, s.sampleRate), s.overruns, s.peak);
-    std::printf("gap fills: %d, largest %.3f s\n", s.gapFills, s.largestGapFrames / juce::jmax(1.0, s.sampleRate));
+    std::printf("gap fills: %d, largest %.3f s, silence dropped at stop %.3f s, discontinuity packets: %d\n", s.gapFills,
+                s.largestGapFrames / juce::jmax(1.0, s.sampleRate), s.silenceFramesDropped / juce::jmax(1.0, s.sampleRate),
+                s.discontinuities);
+    if (s.error.isNotEmpty())
+        std::printf("error: %s (device lost: %s, write failed: %s)\n", s.error.toRawUTF8(), s.deviceLost ? "yes" : "no",
+                    s.writeFailed ? "yes" : "no");
     if (s.processLoopbackFailure.isNotEmpty())
         std::printf("process loopback: %s\n", s.processLoopbackFailure.toRawUTF8());
 }
@@ -127,9 +132,9 @@ int record(const juce::File& out, double seconds, bool excludeOwn)
         std::printf("  t=%2d peak=%.3f\n", s + 1, capture->stats().peak);
         std::fflush(stdout);
     }
-    capture->stop();
+    const auto stopped = capture->stop();
     printStats(capture->stats());
-    return 0;
+    return stopped.wasOk() ? 0 : 4;
 }
 
 /** Pumps the message loop (the engine's device scan and render tasks need it). */
@@ -167,12 +172,15 @@ int engineMuteTest()
 
     sampler::EngineHost host;
     pump(4.0); // the engine needs its start-up device scan to finish before playing
+    host.setOutputMuted(true); // before loading: the mute must outlast loading a file
     if (!host.loadFile(source))
     {
         std::printf("cannot load tone%s", "\n");
         return 1;
     }
-    host.setOutputMuted(true);
+    std::printf("muted after load: %s\n", host.isOutputMuted() ? "yes" : "NO (FAIL)");
+    if (!host.isOutputMuted())
+        return 3;
     host.play();
     pump(0.5);
 
@@ -275,7 +283,9 @@ int selftest(double seconds, bool muteOwn, bool processMode)
     waitUntil(toneBEnd);
     closeDevice();
     waitUntil(seconds);
-    capture->stop();
+    const auto stopped = capture->stop();
+    if (stopped.failed())
+        std::printf("stop failed: %s\n", stopped.getErrorMessage().toRawUTF8());
 
     const auto stats = capture->stats();
     printStats(stats);
@@ -315,7 +325,7 @@ int selftest(double seconds, bool muteOwn, bool processMode)
                 toneWindows > 0 && toneOk == toneWindows ? "PASS" : "FAIL");
     std::printf("gap windows silent: %d/%d %s\n", quietOk, quietWindows, quietWindows > 0 && quietOk == quietWindows ? "PASS" : "FAIL");
 
-    const bool pass = lengthOk && toneWindows > 0 && toneOk == toneWindows && quietWindows > 0 && quietOk == quietWindows;
+    const bool pass = stopped.wasOk() && lengthOk && toneWindows > 0 && toneOk == toneWindows && quietWindows > 0 && quietOk == quietWindows;
     return pass ? 0 : 3;
 }
 } // namespace

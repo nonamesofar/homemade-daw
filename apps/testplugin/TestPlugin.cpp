@@ -18,11 +18,12 @@ float oscillator(int waveform, double phase) // phase in cycles
 } // namespace
 
 // Counters the host test reads through the loaded module, to prove how often the host calls processBlock.
-extern "C"
-{
-__declspec(dllexport) int64_t sampler_testplugin_processBlockCount() { return processBlockCount.load(); }
-__declspec(dllexport) void sampler_testplugin_resetProcessBlockCount() { processBlockCount.store(0); }
-}
+// The test plugin is Windows-only (it stands in for a VST3 on the dev machine); this is the one place that spells
+// the export attribute. On another platform it would be __attribute__((visibility("default"))).
+#define SAMPLER_TESTPLUGIN_EXPORT extern "C" __declspec(dllexport)
+
+SAMPLER_TESTPLUGIN_EXPORT int64_t sampler_testplugin_processBlockCount() { return processBlockCount.load(); }
+SAMPLER_TESTPLUGIN_EXPORT void sampler_testplugin_resetProcessBlockCount() { processBlockCount.store(0); }
 
 //==============================================================================
 class TestPluginEditor : public juce::AudioProcessorEditor, private juce::Timer
@@ -148,6 +149,8 @@ void TestPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
         const auto position = ppq + i * ppqPerSample;
+        if (position < 0.0)
+            continue; // pre-roll or latency compensation: no beat has started yet (and a negative beat has no output)
         const auto beat = std::floor(position);
         const auto t = (position - beat) * secondsPerBeat; // seconds since the beat started
         if (t >= burstSeconds)

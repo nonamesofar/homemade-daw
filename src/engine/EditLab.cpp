@@ -54,7 +54,7 @@ void EditLab::newEdit(const juce::File& editFile)
 {
     impl->edit = te::createEmptyEdit(*impl->engine, editFile);
     impl->edit->ensureNumberOfAudioTracks(1);
-    te::EditFileOperations(*impl->edit).save(false, true, false);
+    detail::saveEditAtomically(*impl->edit);
 }
 
 bool EditLab::open(const juce::File& editFile)
@@ -63,9 +63,9 @@ bool EditLab::open(const juce::File& editFile)
     return impl->edit != nullptr;
 }
 
-bool EditLab::save()
+bool EditLab::save(const std::function<void(const juce::File&)>& beforeCommit)
 {
-    return impl->edit != nullptr && te::EditFileOperations(*impl->edit).save(false, true, false);
+    return impl->edit != nullptr && detail::saveEditAtomically(*impl->edit, beforeCommit);
 }
 
 void EditLab::closeEdit() { impl->edit.reset(); }
@@ -195,31 +195,37 @@ bool EditLab::buildReverseProxy(int clipIndex)
     return Impl::waitFor([&] { return !dir.findChildFiles(juce::File::findFiles, false, "render_*.wav").isEmpty(); }, 20000);
 }
 
-int EditLab::buildStretchProxy(int clipIndex, double speedRatio, bool& usesProxy)
+EditLab::StretchProxy EditLab::buildStretchProxy(int clipIndex, double speedRatio)
 {
+    StretchProxy result;
     auto* c = impl->clip(clipIndex);
-    usesProxy = false;
     if (c == nullptr)
-        return -1;
+        return result;
+    result.clipFound = true;
 
     c->setTimeStretchMode(te::TimeStretcher::rubberbandMelodic);
     c->setSpeedRatio(speedRatio);
-    usesProxy = c->usesTimeStretchedProxy();
+    result.usesProxy = c->usesTimeStretchedProxy();
     c->beginRenderingNewProxyIfNeeded();
 
-    const auto dir = impl->edit->getTempDirectory(true);
-    if (usesProxy)
+    const auto playback = c->getPlaybackFile();
+    result.file = playback.getFile();
+    if (result.usesProxy)
     {
-        // The proxy file appears empty while it is being written; wait for it to have content, then let the job wind down.
-        Impl::waitFor(
-            [&]
-            {
-                const auto files = dir.findChildFiles(juce::File::findFiles, false, "*.wav");
-                return !files.isEmpty() && files.getFirst().getSize() > 1000;
-            },
-            30000);
-        juce::MessageManager::getInstance()->runDispatchLoopUntil(500);
+        // The proxy file exists, empty, while it is being written: wait for the job to end and the file to have content.
+        auto& renders = impl->engine->getRenderManager();
+        result.finished = Impl::waitFor(
+            [&] { return !renders.isProxyBeingGenerated(playback) && result.file.getSize() > 1000; }, 30000);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
     }
-    return dir.findChildFiles(juce::File::findFiles, false, "*.wav").size();
+
+    if (auto reader = std::unique_ptr<juce::AudioFormatReader>(
+            impl->engine->getAudioFileFormatManager().readFormatManager.createReaderFor(result.file)))
+        if (reader->sampleRate > 0.0)
+            result.seconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+
+    const auto dir = impl->edit->getTempDirectory(true);
+    result.wavFilesInTempDir = dir.findChildFiles(juce::File::findFiles, false, "*.wav").size();
+    return result;
 }
 } // namespace sampler

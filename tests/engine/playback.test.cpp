@@ -51,3 +51,34 @@ TEST_CASE("offline render of 16 bars at 120 BPM is 32 s and faster than real tim
     CHECK(length == Catch::Approx(sixteenBarsSeconds).margin(0.05));
     CHECK(elapsedSeconds < sixteenBarsSeconds);
 }
+
+TEST_CASE("muting the output for capture leaves the edit alone and survives loading a file", "[engine][capture][mute]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    auto dir = sampler::test::tempDir("mute");
+    const auto first = sampler::test::writeToneWav(dir.getChildFile("first.wav"), 2.0);
+    const auto second = sampler::test::writeToneWav(dir.getChildFile("second.wav"), 3.0);
+
+    sampler::EngineHost host;
+    REQUIRE(host.loadFile(first));
+    const auto volumeBefore = host.masterVolumeDb();
+    const auto stateBefore = host.editStateXml();
+    const auto undoBefore = host.undoHistoryDescription();
+    REQUIRE(stateBefore.isNotEmpty());
+
+    host.setOutputMuted(true);
+    CHECK(host.isOutputMuted());
+    CHECK(host.masterVolumeDb() == volumeBefore);
+    CHECK(host.editStateXml() == stateBefore);       // nothing in the document (so nothing in a saved project)
+    CHECK(host.undoHistoryDescription() == undoBefore); // and nothing to undo
+
+    // Loading another file while capturing must not unmute: the app would record itself.
+    REQUIRE(host.loadFile(second));
+    CHECK(host.isOutputMuted());
+
+    host.setOutputMuted(false);
+    CHECK_FALSE(host.isOutputMuted());
+    host.setOutputMuted(true);
+    host.setOutputMuted(true); // idempotent
+    CHECK(host.isOutputMuted());
+}

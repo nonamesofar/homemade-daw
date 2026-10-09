@@ -2,19 +2,68 @@
 
 #include "EngineSetup.h"
 
+#include <atomic>
+
 namespace te = tracktion::engine;
 
 namespace sampler
 {
+namespace
+{
+/**
+    Runs on the audio thread after the engine has filled the device output (te::DeviceManager's global output
+    processor) and silences it while `muted` is set. Lives outside the edit, so muting never touches the document,
+    the undo history or a saved project, and it outlasts loading another edit. No allocation and no locks in
+    processBlock: one atomic load and a clear.
+*/
+class OutputMuteProcessor final : public juce::AudioProcessor
+{
+public:
+    std::atomic<bool> muted{false};
+
+    const juce::String getName() const override { return "Sampler output mute"; }
+    void prepareToPlay(double, int) override {}
+    void releaseResources() override {}
+
+    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    {
+        if (!muted.load(std::memory_order_relaxed))
+            return;
+        auto* const* channels = buffer.getArrayOfWritePointers();
+        for (int c = 0; c < buffer.getNumChannels(); ++c)
+            if (channels[c] != nullptr)
+                juce::FloatVectorOperations::clear(channels[c], buffer.getNumSamples());
+    }
+
+    double getTailLengthSeconds() const override { return 0.0; }
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    bool hasEditor() const override { return false; }
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
+    void getStateInformation(juce::MemoryBlock&) override {}
+    void setStateInformation(const void*, int) override {}
+};
+} // namespace
+
 struct EngineHost::Impl
 {
-    explicit Impl(const juce::String& appName) : engine(detail::makeEngine(appName)) {}
+    explicit Impl(const juce::String& appName) : engine(detail::makeEngine(appName))
+    {
+        // The device manager owns it; it lives as long as the engine. Installing it takes the audio callback lock.
+        auto processor = std::make_unique<OutputMuteProcessor>();
+        mute = processor.get();
+        engine->getDeviceManager().setGlobalOutputAudioProcessor(std::move(processor));
+    }
 
     std::unique_ptr<te::Engine> engine;
     std::unique_ptr<te::Edit> edit;
+    OutputMuteProcessor* mute = nullptr;
     double lengthSeconds = 0.0;
-    bool outputMuted = false;
-    float volumeBeforeMute = 0.0f;
 };
 
 EngineHost::EngineHost(const juce::String& appName) : impl(std::make_unique<Impl>(appName)) {}
@@ -51,7 +100,6 @@ bool EngineHost::loadFile(const juce::File& file)
 
     impl->lengthSeconds = length;
     impl->edit = std::move(edit);
-    impl->outputMuted = false;
     impl->edit->getTransport().ensureContextAllocated();
     return true;
 }
@@ -89,27 +137,30 @@ void EngineHost::setTempo(double bpm)
         impl->edit->tempoSequence.getTempo(0)->setBpm(bpm);
 }
 
-void EngineHost::setOutputMuted(bool muted)
-{
-    if (impl->edit == nullptr || muted == impl->outputMuted)
-        return;
+void EngineHost::setOutputMuted(bool muted) { impl->mute->muted.store(muted); }
 
-    if (auto master = impl->edit->getMasterVolumePlugin())
-    {
-        if (muted)
-        {
-            impl->volumeBeforeMute = master->getVolumeDb();
-            master->setSliderPos(0.0f); // true silence, not -100 dB
-        }
-        else
-        {
-            master->setVolumeDb(impl->volumeBeforeMute);
-        }
-        impl->outputMuted = muted;
-    }
+bool EngineHost::isOutputMuted() const { return impl->mute->muted.load(); }
+
+float EngineHost::masterVolumeDb() const
+{
+    if (impl->edit != nullptr)
+        if (auto master = impl->edit->getMasterVolumePlugin())
+            return master->getVolumeDb();
+    return 0.0f;
 }
 
-bool EngineHost::isOutputMuted() const { return impl->outputMuted; }
+juce::String EngineHost::editStateXml() const
+{
+    return impl->edit != nullptr ? impl->edit->state.toXmlString() : juce::String();
+}
+
+juce::String EngineHost::undoHistoryDescription() const
+{
+    if (impl->edit == nullptr)
+        return {};
+    auto& undo = impl->edit->getUndoManager();
+    return undo.getUndoDescriptions().joinIntoString("|") + " pending=" + juce::String(undo.getNumActionsInCurrentTransaction());
+}
 
 bool EngineHost::renderToWav(const juce::File& dest, double startSeconds, double lengthSeconds, double sampleRate)
 {

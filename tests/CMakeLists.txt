@@ -16,10 +16,17 @@ catch_discover_tests(sampler_ui_tests)
 
 # The real timeline component driven by synthetic mouse events (headless, no window).
 add_executable(sampler_ui_component_tests ui/timeline_component.test.cpp)
-target_link_libraries(sampler_ui_component_tests PRIVATE sampler_ui Catch2::Catch2WithMain juce::juce_events)
+target_link_libraries(sampler_ui_component_tests PRIVATE sampler_ui Catch2::Catch2WithMain)
 sampler_target_debuggable(sampler_ui_component_tests)
 sampler_target_warnings(sampler_ui_component_tests)
 catch_discover_tests(sampler_ui_component_tests)
+
+# Platform code (capture lifecycle); needs an output device, skips without one.
+add_executable(sampler_platform_tests platform/capture.test.cpp)
+target_link_libraries(sampler_platform_tests PRIVATE sampler_platform Catch2::Catch2WithMain)
+sampler_target_debuggable(sampler_platform_tests)
+sampler_target_warnings(sampler_platform_tests)
+catch_discover_tests(sampler_platform_tests ADD_TAGS_AS_LABELS)
 
 # Tests that run the real engine headless.
 add_executable(AtomicWriterProbe tools/AtomicWriterProbe.cpp)
@@ -36,12 +43,12 @@ target_link_libraries(sampler_engine_tests PRIVATE
     sampler_engine
     sampler_io
     sampler_platform
-    Catch2::Catch2WithMain
-    juce::juce_audio_formats
-    juce::juce_audio_processors
-    juce::juce_cryptography
-    juce::juce_events
-    juce::juce_gui_basics)
+    sampler_juce
+    Catch2::Catch2WithMain)
 sampler_target_debuggable(sampler_engine_tests)
 sampler_target_warnings(sampler_engine_tests)
-catch_discover_tests(sampler_engine_tests PROPERTIES LABELS engine)
+# Catch2 tags become ctest labels ([engine], [io], [plugin], ...). Every test runs by default; two labels let a run
+# leave out the noisy ones with `ctest -LE "realtime|gui"`:
+#   realtime: plays sound on the output device and records it through loopback.
+#   gui:      opens a window and posts mouse clicks to it.
+catch_discover_tests(sampler_engine_tests ADD_TAGS_AS_LABELS)

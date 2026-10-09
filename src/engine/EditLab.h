@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <functional>
 #include <memory>
 
 namespace sampler
@@ -20,7 +21,11 @@ public:
     /** New empty edit with one audio track, saved at once to `editFile` (relative source paths need the file to exist). */
     void newEdit(const juce::File& editFile);
     bool open(const juce::File& editFile);
-    bool save();
+    /**
+        Saves atomically (the edit file is always the old or the new version). `beforeCommit` runs once the new version
+        is complete in a temporary file, before it replaces the edit file (tests only).
+    */
+    bool save(const std::function<void(const juce::File& temporaryFile)>& beforeCommit = {});
     void closeEdit();
 
     //==============================================================================
@@ -54,12 +59,21 @@ public:
     /** Reverses the clip, which makes the engine render a proxy file, and waits for it. */
     bool buildReverseProxy(int clip);
 
+    struct StretchProxy
+    {
+        bool clipFound = false;
+        bool usesProxy = false;  // whether the engine chose to render a stretch proxy at all
+        bool finished = false;   // the render job ended within the timeout
+        juce::File file;         // the clip's playback file (the proxy when usesProxy)
+        double seconds = 0.0;    // length of that file, read back with the engine's decoders
+        int wavFilesInTempDir = 0;
+    };
+
     /**
-        Sets the clip to the Rubber Band melodic stretch mode at `speedRatio` (playback speed: 0.5 = half speed) and
-        renders its stretch proxy if the engine wants one. Returns the number of proxy files found in the edit's temp
-        folder afterwards; -1 if the clip does not exist. `usesProxy` tells whether the engine chose a proxy at all.
+        Sets the clip to the Rubber Band melodic stretch mode at `speedRatio` (playback speed: 0.5 = half speed),
+        renders its stretch proxy if the engine wants one, and waits for the render to finish (up to 30 s).
     */
-    int buildStretchProxy(int clip, double speedRatio, bool& usesProxy);
+    StretchProxy buildStretchProxy(int clip, double speedRatio);
 
 private:
     struct Impl;

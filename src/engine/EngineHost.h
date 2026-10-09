@@ -50,11 +50,21 @@ public:
     DecodeInfo probeDecode(const juce::File&) const;
 
     /**
-        Silences (true) or restores (false) everything the engine sends to the output device, by taking the master
-        volume to zero. Used while capturing the whole device, so the app does not record itself.
+        Silences (true) or restores (false) everything the engine sends to the output device. Used while capturing the
+        whole device, so the app does not record itself. Works below the edit (on the device output), so it never
+        changes the edit, its undo history or a saved project, and it stays on when another file is loaded.
     */
     void setOutputMuted(bool muted);
     bool isOutputMuted() const;
+
+    //==============================================================================
+    // Diagnostics for tests.
+    /** Master volume of the current edit in dB (0 if there is no edit). */
+    float masterVolumeDb() const;
+    /** The current edit's state as XML (empty if there is no edit). */
+    juce::String editStateXml() const;
+    /** The undo history: transaction names and the number of actions not yet in a transaction. */
+    juce::String undoHistoryDescription() const;
 
     /**
         Waveform thumbnail for a file (Tracktion's SmartThumbnail behind JUCE's AudioThumbnailBase interface), which

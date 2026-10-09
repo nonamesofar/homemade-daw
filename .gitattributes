@@ -1,0 +1,19 @@
+# Text is UTF-8 with \n line endings (AGENTS.md), also in the working tree on Windows.
+* text=auto eol=lf
+
+# Windows-only scripts that cmd.exe runs keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files: never touch line endings, no text diffs.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.wav  binary
+*.mp3  binary
+*.flac binary
+*.ogg  binary
+*.m4a  binary
+
+# Golden renders live in Git LFS.
+tests/golden/**/*.wav filter=lfs diff=lfs merge=lfs -text

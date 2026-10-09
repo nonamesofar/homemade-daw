@@ -163,8 +163,7 @@ juce::Result PluginLab::newEdit(const juce::File& editFile, const juce::File& pl
 
     impl->plugin = external;
     impl->attachMeters();
-    return te::EditFileOperations(edit).save(false, true, false) ? juce::Result::ok()
-                                                                 : juce::Result::fail("could not save the edit");
+    return detail::saveEditAtomically(edit) ? juce::Result::ok() : juce::Result::fail("could not save the edit");
 }
 
 juce::Result PluginLab::open(const juce::File& editFile, const juce::File& pluginFile)
@@ -186,7 +185,7 @@ juce::Result PluginLab::open(const juce::File& editFile, const juce::File& plugi
     return juce::Result::ok();
 }
 
-bool PluginLab::save() { return impl->edit != nullptr && te::EditFileOperations(*impl->edit).save(false, true, false); }
+bool PluginLab::save() { return impl->edit != nullptr && detail::saveEditAtomically(*impl->edit); }
 
 void PluginLab::closeEdit() { impl->closeEdit(); }
 
