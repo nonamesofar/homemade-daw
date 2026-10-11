@@ -1,5 +1,7 @@
 include(${CMAKE_SOURCE_DIR}/external/Catch2/extras/Catch.cmake)
 
+add_subdirectory(testplugin)
+
 add_executable(sampler_tests smoke.test.cpp)
 target_link_libraries(sampler_tests PRIVATE Catch2::Catch2WithMain)
 sampler_target_debuggable(sampler_tests)
@@ -15,7 +17,7 @@ sampler_target_warnings(sampler_ui_tests)
 catch_discover_tests(sampler_ui_tests)
 
 # The real timeline component driven by synthetic mouse events (headless, no window).
-add_executable(sampler_ui_component_tests ui/timeline_component.test.cpp)
+add_executable(sampler_ui_component_tests ui/timeline_component.test.cpp ui/browser_panel.test.cpp ui/browser_model.test.cpp ui/widgets.test.cpp)
 target_link_libraries(sampler_ui_component_tests PRIVATE sampler_ui Catch2::Catch2WithMain)
 sampler_target_debuggable(sampler_ui_component_tests)
 sampler_target_warnings(sampler_ui_component_tests)
@@ -34,12 +36,13 @@ target_link_libraries(AtomicWriterProbe PRIVATE sampler_io)
 sampler_target_debuggable(AtomicWriterProbe)
 
 add_executable(sampler_engine_tests engine/playback.test.cpp engine/assumptions.test.cpp engine/integrity.test.cpp
-    engine/plugin_hosting.test.cpp)
+    engine/plugin_hosting.test.cpp engine/project_edit.test.cpp engine/project_open.test.cpp engine/thumbnails.test.cpp engine/audition.test.cpp)
 add_dependencies(sampler_engine_tests AtomicWriterProbe SamplerTestPlugin_VST3)
 target_compile_definitions(sampler_engine_tests PRIVATE
     ATOMIC_WRITER_PROBE_PATH="$<TARGET_FILE:AtomicWriterProbe>"
     TEST_PLUGIN_VST3_PATH="$<TARGET_FILE_DIR:SamplerTestPlugin_VST3>/../..")
 target_link_libraries(sampler_engine_tests PRIVATE
+    sampler_engine_testkit
     sampler_engine
     sampler_io
     sampler_platform
@@ -54,3 +57,33 @@ sampler_target_warnings(sampler_engine_tests)
 #             with `-LE hardware`. Run it locally.
 #   gui:      opens a window and posts mouse clicks to it.
 catch_discover_tests(sampler_engine_tests ADD_TAGS_AS_LABELS)
+
+# Import, decoding and encoding code that runs without the audio engine.
+add_executable(sampler_io_tests io/lame.test.cpp io/fixtures.test.cpp io/import.test.cpp io/mp3.test.cpp io/import_formats.test.cpp)
+target_compile_definitions(sampler_io_tests PRIVATE SAMPLER_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/audio-fixtures")
+target_link_libraries(sampler_io_tests PRIVATE sampler_io sampler_fixtures sampler_lame sampler_juce Catch2::Catch2WithMain)
+sampler_target_debuggable(sampler_io_tests)
+sampler_target_warnings(sampler_io_tests)
+catch_discover_tests(sampler_io_tests ADD_TAGS_AS_LABELS)
+
+# The SAMPLER subtree wrappers (no engine, no GUI).
+add_executable(sampler_model_tests model/sampler_state.test.cpp model/migrations.test.cpp)
+target_link_libraries(sampler_model_tests PRIVATE sampler_model Catch2::Catch2WithMain)
+sampler_target_debuggable(sampler_model_tests)
+sampler_target_warnings(sampler_model_tests)
+catch_discover_tests(sampler_model_tests ADD_TAGS_AS_LABELS)
+
+# Commands and undo on a plain model (no engine).
+add_executable(sampler_commands_tests commands/commands.test.cpp)
+target_link_libraries(sampler_commands_tests PRIVATE sampler_commands Catch2::Catch2WithMain)
+sampler_target_debuggable(sampler_commands_tests)
+sampler_target_warnings(sampler_commands_tests)
+catch_discover_tests(sampler_commands_tests ADD_TAGS_AS_LABELS)
+
+# The main window content and its controller (headless: no top-level window is created).
+add_executable(sampler_app_tests app/main_component.test.cpp app/project_flow.test.cpp app/progress.test.cpp)
+target_compile_definitions(sampler_app_tests PRIVATE SAMPLER_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/audio-fixtures")
+target_link_libraries(sampler_app_tests PRIVATE sampler_app_core Catch2::Catch2WithMain)
+sampler_target_debuggable(sampler_app_tests)
+sampler_target_warnings(sampler_app_tests)
+catch_discover_tests(sampler_app_tests ADD_TAGS_AS_LABELS)

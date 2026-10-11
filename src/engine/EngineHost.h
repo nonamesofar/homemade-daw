@@ -3,6 +3,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_core/juce_core.h>
 
+#include <functional>
 #include <memory>
 
 namespace juce
@@ -10,6 +11,11 @@ namespace juce
 class AudioThumbnailBase;
 class Component;
 } // namespace juce
+
+namespace tracktion { inline namespace engine
+{
+class Engine;
+}} // namespace tracktion::engine
 
 namespace sampler
 {
@@ -31,19 +37,20 @@ public:
     ~EngineHost();
 
     //==============================================================================
-    /** Replaces the edit with one track holding the whole file as a clip at time 0. */
-    bool loadFile(const juce::File&);
-    double loadedLengthSeconds() const;
+    /**
+        True once an output device is open and the engine's start-up device scan has finished, so that playing works
+        (before that the transport starts and stops itself, see docs/m0-findings.md). Message thread only.
+    */
+    bool isAudioReady() const;
 
-    void play();
-    void stop();
-    bool isPlaying() const;
-    double positionSeconds() const;
-    void setPositionSeconds(double);
-    void setTempo(double bpm);
+    /** Called once on the message thread when the audio becomes ready (not called if it already is: check `isAudioReady`). */
+    std::function<void()> onAudioReady;
 
-    /** Renders [startSeconds, startSeconds + lengthSeconds) of the edit to a 24-bit WAV, offline. */
-    bool renderToWav(const juce::File& dest, double startSeconds, double lengthSeconds, double sampleRate = 44100.0);
+    /** Developer flag `--audio-start-delay`: holds back the ready signal until this long after start-up. */
+    void holdAudioReadyFor(int milliseconds);
+
+    /** The engine, for the services inside `src/engine` (ProjectEdit, Audition). Include EngineSetup.h to use it. */
+    tracktion::engine::Engine& tracktionEngine() const;
 
     //==============================================================================
     /** Opens the file with every decoder the engine knows and reports what it found. */
@@ -57,15 +64,6 @@ public:
     void setOutputMuted(bool muted);
     bool isOutputMuted() const;
 
-    //==============================================================================
-    // Diagnostics for tests.
-    /** Master volume of the current edit in dB (0 if there is no edit). */
-    float masterVolumeDb() const;
-    /** The current edit's state as XML (empty if there is no edit). */
-    juce::String editStateXml() const;
-    /** The undo history: transaction names and the number of actions not yet in a transaction. */
-    juce::String undoHistoryDescription() const;
-
     /**
         Waveform thumbnail for a file (Tracktion's SmartThumbnail behind JUCE's AudioThumbnailBase interface), which
         repaints `repaintTarget` as it fills in. Callers need juce_audio_utils to use or delete it.
@@ -75,14 +73,16 @@ public:
     /** Opens a reader with the same decoders the engine uses for clips. Null if no decoder accepts the file. */
     std::unique_ptr<juce::AudioFormatReader> openReader(const juce::File&) const;
 
+    /** The open output device's sample rate (0 if none) and buffer size in frames (0 if none). */
+    double currentSampleRate() const;
+    int currentBufferSize() const;
+
     /** "Windows Audio" (WASAPI shared) is expected; empty if no device is open. */
     juce::String currentAudioDeviceType() const;
     juce::String currentAudioDeviceName() const;
-    int xrunCount() const;
 
     /** Multi-line description of the engine's wave output devices and the open device (diagnostics). */
     juce::String describeAudioSetup() const;
-    juce::String describeTransport() const;
 
 private:
     struct Impl;

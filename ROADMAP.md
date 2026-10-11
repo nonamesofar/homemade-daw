@@ -35,17 +35,17 @@ Change: `m0-spike` (34 of 34 tasks done; progress in `openspec/changes/m0-spike/
 - [x] **Exit:** all items pass, or a written decision to use the custom-engine fallback for each failing area (all pass; no fallback needed)
 
 ## M1 Core + import (3 wks)
-Change: _none yet_
+Change: `m1-core-import` (built as demos D1 to D7, see `openspec/changes/m1-core-import/tasks.md`)
 
-- [ ] App shell, `SamplerLookAndFeel` and widget set
-- [ ] Bundle new/open/save
-- [ ] `CommandService` + undo
-- [ ] Import pipeline
-- [ ] MP3 gapless trim at decode: read delay/padding from the LAME tag, cut start `delay + 529 + 1` and the padding (no tag: assume 1105 at the start). The engine does not trim (M0 finding); test with a real LAME file
-- [ ] Browser with search and categories
-- [ ] Thumbnails
-- [ ] Audition
-- [ ] **Exit:** import 5 formats, save/reopen, undo works, waveforms drawn
+- [x] App shell, `SamplerLookAndFeel` and widget set (IBM Plex embedded, widget gallery under Help; accepted in demo D7)
+- [x] Bundle new/open/save (demo D3)
+- [x] `CommandService` + undo (demo D2)
+- [x] Import pipeline (demos D1 and D4)
+- [x] MP3 gapless trim at decode: read delay/padding from the LAME tag, cut start `delay + 529` and the padding (no tag: assume 1105 at the start). Tested with a real LAME file (demo D4)
+- [x] Browser with search and categories (demo D6)
+- [x] Thumbnails (demo D5)
+- [x] Audition (demo D2)
+- [ ] **Exit:** import 5 formats (WAV, AIFF, FLAC, MP3, OGG), save/reopen, undo works, waveforms drawn. Each part was accepted in its own demo; waits for the single full run (task 8.1) and green CI (tasks 1.11 and 8.3)
 
 ## M2 Arrangement (4 to 6 wks)
 Change: _none yet_
@@ -166,3 +166,8 @@ Record decisions that came out of a milestone (for example a failed M0 check and
 - 2026-10-09: JUCE and Tracktion are compiled once, in `sampler_juce` and `sampler_tracktion` (`cmake/SamplerJuce.cmake`): one set of JUCE settings, /O2 even in Debug, no /WX, headers included as external. Only `sampler_engine` links `sampler_tracktion`, so CMake enforces "Tracktion only in src/engine". Before, every target compiled its own JUCE copy (about 12 copies of juce_core with different settings).
 - 2026-10-09: Tracktion's `EditFileOperations::save` is not atomic (it deletes the edit file, then moves the new one in). The project file is saved by our `saveEditAtomically` (temp file, flush, one replacing rename) instead; findings row A8 corrected.
 - 2026-10-09: The capture mute moved out of the edit: a global output processor on Tracktion's device manager silences the device output, so muting is not undoable, is never saved in a project and survives loading a file. It used to set the master volume to 0 in the edit.
+- 2026-10-09: The M1 browser lists only the open project's sounds; a library shared across projects is later.
+- 2026-10-09: M4A import stays descoped (M0 finding), so the five-format exit count uses AIFF instead: WAV, AIFF, FLAC, MP3, OGG.
+- 2026-10-09: LAME was pulled forward from M4 into M1, because the MP3 gapless trim reads the LAME tag and the test fixtures need an encoder.
+- 2026-10-09: Untitled projects live in the app data folder (`Sampler/untitled/<uuid>.sdaw`); the first Save moves the folder to the chosen place.
+- 2026-10-09: Audition plays through a Tracktion preview edit; the planned plain-JUCE fallback was not needed. The first play starts from a 30 ms timer to avoid an engine stall (see `docs/m0-findings.md`).

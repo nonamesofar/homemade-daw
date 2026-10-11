@@ -66,6 +66,8 @@ bool writeAndSwap(const juce::File& destination, const void* data, size_t size,
 }
 } // namespace
 
+bool renameReplacing(const juce::File& from, const juce::File& to) { return replaceByRename(from, to); }
+
 bool writeFileAtomically(const juce::File& destination, const void* data, size_t size,
                          const std::function<void(const juce::File&)>& beforeCommit)
 {

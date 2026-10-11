@@ -16,3 +16,6 @@
 [submodule "external/signalsmith-linear"]
 	path = external/signalsmith-linear
 	url = https://github.com/Signalsmith-Audio/linear.git
+[submodule "external/lame"]
+	path = external/lame
+	url = https://github.com/lameproject/lame.git

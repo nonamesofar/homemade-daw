@@ -11,7 +11,7 @@
 #include <thread>
 
 #include "TestAudio.h"
-#include "engine/EditLab.h"
+#include "engine/testkit/EditLab.h"
 #include "io/AtomicFile.h"
 
 #ifndef ATOMIC_WRITER_PROBE_PATH

@@ -2,11 +2,13 @@
 add_library(sampler_engine STATIC
     EngineHost.cpp EngineHost.h
     EngineSetup.cpp EngineSetup.h
-    EditLab.cpp EditLab.h
-    PluginLab.cpp PluginLab.h)
+    ProjectEdit.cpp ProjectEdit.h
+    Audition.cpp Audition.h AuditionRequestQueue.h)
 target_include_directories(sampler_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(sampler_engine
-    PUBLIC sampler_juce
+    PUBLIC sampler_juce sampler_model
     PRIVATE sampler_tracktion)
 sampler_target_optimised(sampler_engine)
 sampler_target_warnings(sampler_engine)
+
+add_subdirectory(testkit)

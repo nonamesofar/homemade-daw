@@ -29,9 +29,11 @@ add_subdirectory(external/Catch2)
 
 include(cmake/SamplerTargets.cmake)
 include(cmake/SamplerJuce.cmake)
+include(cmake/SamplerLame.cmake)
 
+add_subdirectory(resources)
 add_subdirectory(src)
-add_subdirectory(apps)
+add_subdirectory(tools)
 
 enable_testing()
 add_subdirectory(tests)
