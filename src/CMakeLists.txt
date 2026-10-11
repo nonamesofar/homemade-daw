@@ -1,4 +1,7 @@
+add_subdirectory(model)
+add_subdirectory(commands)
 add_subdirectory(engine)
 add_subdirectory(io)
 add_subdirectory(platform)
 add_subdirectory(ui)
+add_subdirectory(app)

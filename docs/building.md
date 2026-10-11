@@ -27,4 +27,8 @@ ctest --preset windows-msvc-debug -LE "realtime|gui"
 
 JUCE and Tracktion are compiled once, into `sampler_juce` and `sampler_tracktion` (`cmake/SamplerJuce.cmake`), optimised even in Debug and without warnings-as-errors. Our own targets link those, never `juce::juce_*` directly; only the test plugin builds its own JUCE copy.
 
-The spike app is `build/windows-msvc-debug/apps/spike/SamplerSpike_artefacts/Debug/Sampler Spike.exe`.
+## Running
+
+The app is `build/windows-msvc-debug/src/app/Sampler_artefacts/Debug/Sampler.exe` (release: `build/windows-msvc-release/src/app/Sampler_artefacts/Release/Sampler.exe`). Developer flag: `--audio-start-delay <ms>` holds back the "audio ready" signal, to see how clicks during start-up are queued.
+
+Developer tools build to `build/<preset>/tools/...`: `MakeFixtures` (writes the test audio, see `tests/audio-fixtures/README.md`), the probes (`DeviceProbe`, `DecodeProbe`, `CaptureProbe`) and `StretchBench`. The VST3 test plugin builds from `tests/testplugin`.

@@ -2,7 +2,7 @@
 
 Working name for a hobby desktop DAW (digital audio workstation) built around sampling. Windows only for now.
 
-> **Status:** milestone M0 (technical spike) is done. M1 (core app and import) is next. There is no usable app yet; today the repo holds the build skeleton, a spike app, probes and tests. Progress is tracked in [ROADMAP.md](ROADMAP.md).
+> **Status:** early development. The app opens, imports audio files into a project and plays them from a list. Progress is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## What it is
 
@@ -21,17 +21,17 @@ The intended workflow:
 
 | Feature | Status |
 |---|---|
-| Import WAV, MP3, FLAC, OGG | planned (M1) |
-| Non-destructive: original audio is never modified, every edit is project data | planned (M1) |
-| Multi-track arrangement timeline | planned (M2) |
-| Capture computer audio (WASAPI loopback), excluding the app's own sound | planned (M2b); proven in the M0 probe |
-| Sample editor with beat, transient and manual slicing | planned (M3) |
-| 4x4 slice pads | planned (M3) |
-| Tempo-aware playback: re-pitch, beat-preserving and tonal warp modes | planned (M4) |
-| WAV, MP3 and stem export | planned (M4) |
-| VST3 plugin hosting, including multi-output instruments | planned (M5); proven with a test plugin in M0 |
-| Session view (clip launcher) | planned (M6) |
-| Input recording, effects, automation, tempo map | later (M8 to M10) |
+| Import WAV, MP3, FLAC, OGG | available |
+| Non-destructive: original audio is never modified, every edit is project data | available |
+| Multi-track arrangement timeline | planned |
+| Capture computer audio (WASAPI loopback), excluding the app's own sound | planned; proven in a probe |
+| Sample editor with beat, transient and manual slicing | planned |
+| 4x4 slice pads | planned |
+| Tempo-aware playback: re-pitch, beat-preserving and tonal warp modes | planned |
+| WAV, MP3 and stem export | planned |
+| VST3 plugin hosting, including multi-output instruments | planned; proven with a test plugin |
+| Session view (clip launcher) | planned |
+| Input recording, effects, automation, tempo map | later |
 
 M4A import was descoped. macOS support is on hold until a Mac is available.
 
@@ -87,12 +87,12 @@ Use `windows-msvc-release` for an optimised build. Two groups of tests make nois
 ctest --preset windows-msvc-debug -LE "realtime|gui"
 ```
 
-The spike app is built to `build/windows-msvc-debug/apps/spike/SamplerSpike_artefacts/Debug/Sampler Spike.exe`. More build detail is in [docs/building.md](docs/building.md).
+The app is built to `build/windows-msvc-debug/src/app/Sampler_artefacts/Debug/Sampler.exe`. More build detail is in [docs/building.md](docs/building.md).
 
 ## Documentation
 
-- [ROADMAP.md](ROADMAP.md): milestones and progress
-- [docs/m0-findings.md](docs/m0-findings.md): results of the M0 technical spike
+- [ROADMAP.md](ROADMAP.md): plan and progress
+- [docs/m0-findings.md](docs/m0-findings.md): results of the early technical spike
 - [technical design/](technical%20design/): the design and the stack comparison
 - [concepts/](concepts/): HTML mock-ups of the intended screens (drawings only, open `concepts/index.html`)
 - [openspec/](openspec/): specs and change history

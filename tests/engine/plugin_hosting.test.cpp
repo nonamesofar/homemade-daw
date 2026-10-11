@@ -12,7 +12,7 @@
 #include <cmath>
 
 #include "TestAudio.h"
-#include "engine/PluginLab.h"
+#include "engine/testkit/PluginLab.h"
 #include "platform/ICaptureSource.h"
 #include "platform/NativeWindowTools.h"
 

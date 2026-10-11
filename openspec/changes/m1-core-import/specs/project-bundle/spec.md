@@ -1,0 +1,51 @@
+## ADDED Requirements
+
+### Requirement: Create, save and open projects from the app
+The app SHALL create a new project, save it to a `.sdaw` folder the user names, save it again in place, save it under a new name and location, and open a saved project.
+
+#### Scenario: Save and reopen
+- **WHEN** the user imports three sounds, saves the project as "Beat1", quits and opens "Beat1.sdaw"
+- **THEN** the browser lists the same three sounds with the same names and categories, and they play when auditioned
+
+#### Scenario: Save As makes an independent copy
+- **WHEN** the user saves "Beat1" as "Beat2" and then imports a sound
+- **THEN** after saving, "Beat2" contains the new sound and "Beat1" is unchanged
+
+### Requirement: Untitled projects work before the first save
+A new project SHALL accept imports before it has been saved. Its folder SHALL live in the app's own data folder until the first save, which moves it to the place the user chooses; discarding an untitled project SHALL delete that folder.
+
+#### Scenario: Import, then save
+- **WHEN** the user starts the app, imports a sound, then saves as "First.sdaw" on the desktop
+- **THEN** "First.sdaw" holds the sound's files, opens on its own and its sound plays
+
+#### Scenario: Discard untitled
+- **WHEN** the user imports a sound into an untitled project and quits, choosing Discard
+- **THEN** no folder for that project remains in the app's data folder
+
+### Requirement: Imported audio layout in the project folder
+A project folder SHALL keep imported originals in `audio/originals/`, decoded working copies in `audio/`, and generated files in `cache/`. Deleting `cache/` SHALL lose nothing.
+
+#### Scenario: Folder contents after import
+- **WHEN** one MP3 is imported and the project is saved
+- **THEN** the folder holds the project file, the MP3 under `audio/originals/` and a WAV under `audio/`
+
+### Requirement: App data carries a schema version
+The project file SHALL hold the app's own data in one section marked with an integer schema version, starting at 1.
+
+#### Scenario: Version written
+- **WHEN** a new project is saved
+- **THEN** its project file contains the app's data section with schema version 1
+
+### Requirement: Newer project files are refused
+Opening a project whose schema version is newer than the app supports SHALL be refused with a message saying it was made by a newer version, and the file SHALL NOT be changed.
+
+#### Scenario: Newer file
+- **WHEN** the user opens a project with schema version 99
+- **THEN** a message says it was created by a newer version, the current project stays open and the file is unchanged
+
+### Requirement: Missing or broken projects are reported
+Opening a folder that is not a readable project SHALL show a message and keep the current project open.
+
+#### Scenario: Not a project
+- **WHEN** the user opens a `.sdaw` folder whose project file is missing or not valid
+- **THEN** a message says the project cannot be opened and the current project is unchanged

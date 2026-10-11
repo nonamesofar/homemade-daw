@@ -5,6 +5,7 @@
 
 #include "TestAudio.h"
 #include "engine/EngineHost.h"
+#include "engine/testkit/FilePlayer.h"
 
 namespace
 {
@@ -38,12 +39,13 @@ TEST_CASE("offline render of 16 bars at 120 BPM is 32 s and faster than real tim
     auto out = dir.getChildFile("out.wav");
 
     sampler::EngineHost host;
-    REQUIRE(host.loadFile(wav));
-    host.setTempo(120.0);
+    sampler::FilePlayer player(host);
+    REQUIRE(player.loadFile(wav));
+    player.setTempo(120.0);
 
     constexpr double sixteenBarsSeconds = 16 * 4 * 60.0 / 120.0; // 32 s
     const auto t0 = juce::Time::getMillisecondCounterHiRes();
-    REQUIRE(host.renderToWav(out, 0.0, sixteenBarsSeconds));
+    REQUIRE(player.renderToWav(out, 0.0, sixteenBarsSeconds));
     const auto elapsedSeconds = (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0;
 
     const auto length = wavLengthSeconds(out);
@@ -60,20 +62,21 @@ TEST_CASE("muting the output for capture leaves the edit alone and survives load
     const auto second = sampler::test::writeToneWav(dir.getChildFile("second.wav"), 3.0);
 
     sampler::EngineHost host;
-    REQUIRE(host.loadFile(first));
-    const auto volumeBefore = host.masterVolumeDb();
-    const auto stateBefore = host.editStateXml();
-    const auto undoBefore = host.undoHistoryDescription();
+    sampler::FilePlayer player(host);
+    REQUIRE(player.loadFile(first));
+    const auto volumeBefore = player.masterVolumeDb();
+    const auto stateBefore = player.editStateXml();
+    const auto undoBefore = player.undoHistoryDescription();
     REQUIRE(stateBefore.isNotEmpty());
 
     host.setOutputMuted(true);
     CHECK(host.isOutputMuted());
-    CHECK(host.masterVolumeDb() == volumeBefore);
-    CHECK(host.editStateXml() == stateBefore);       // nothing in the document (so nothing in a saved project)
-    CHECK(host.undoHistoryDescription() == undoBefore); // and nothing to undo
+    CHECK(player.masterVolumeDb() == volumeBefore);
+    CHECK(player.editStateXml() == stateBefore);       // nothing in the document (so nothing in a saved project)
+    CHECK(player.undoHistoryDescription() == undoBefore); // and nothing to undo
 
     // Loading another file while capturing must not unmute: the app would record itself.
-    REQUIRE(host.loadFile(second));
+    REQUIRE(player.loadFile(second));
     CHECK(host.isOutputMuted());
 
     host.setOutputMuted(false);

@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "TestAudio.h"
-#include "engine/EditLab.h"
+#include "engine/testkit/EditLab.h"
 
 namespace
 {

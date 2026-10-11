@@ -1,7 +1,7 @@
 ---
 name: "OPSX: Verify"
-description: "Verify implementation matches change artifacts before archiving"
-allowed-tools: Bash(openspec:*)
+description: "Verify implementation matches change artifacts, then run an adversarial Opus code review with Sonnet fixes, before archiving"
+allowed-tools: Bash(openspec:*), Bash(git diff:*), Bash(git status:*), Bash(git merge-base:*), Bash(git log:*)
 category: "Workflow"
 tags: ["workflow", "verify", "experimental"]
 ---
@@ -21,7 +21,7 @@ Otherwise, with no root, what happens next depends on how this workflow was reac
 
 In both branches, never create the root as a side effect: do not run `openspec init` until the user asks for it, do not hand-create `openspec/` files, and do not let a command create it.
 
-**Input**: Optionally specify a change name after `/opsx:verify` (e.g., `/opsx:verify add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: Optionally specify a change name after `/opsx:verify` (e.g., `/opsx:verify add-auth`). Add `--review-only` to run the adversarial review without letting the coder change any code. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**
 
@@ -55,7 +55,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
 
    This returns the change directory, `contextFiles` (artifact ID -> array of concrete file paths), `taskTrackingConfigured`, and top-level `tasks` and `progress` aggregated from every concrete file matched by the schema's `apply.tracks` configuration that could be read. Read all available artifacts from `contextFiles`.
 
-   Treat apply `state` and `instruction` as context, not a verification verdict. Do not implement tasks or archive the change during verification.
+   Treat apply `state` and `instruction` as context, not a verification verdict. Do not implement tasks or archive the change during verification. The only code changes this workflow may make are the review fixes in step 8, made by the coder subagent.
 
 4. **Initialize verification report structure**
 
@@ -154,7 +154,38 @@ In both branches, never create the root as a side effect: do not run `openspec i
      - Add SUGGESTION: "Code pattern deviation: <details>"
      - Recommendation: "Consider following project pattern: <example>"
 
-8. **Generate Verification Report**
+8. **Adversarial review and fix (Opus reviewer, Sonnet coder)**
+
+   Steps 5 to 7 check the code against the artifacts. This step attacks the code itself. It runs after step 7, so the reviewer can be given the findings so far, and it is the only part of this workflow allowed to change code. Skip it, and mark it **Not verified** with the reason, if no implementation files can be identified. If the user passed `--review-only`, run 8a to 8c but skip 8d to 8f: every finding is reported as "Not fixed (review-only)".
+
+   **8a. Define the scope.** List the files this change touched: `git diff --name-only $(git merge-base HEAD main)` plus `git status --porcelain` for uncommitted work, narrowed to the implementation, test and build files that belong to the change (use the task list and the files found in steps 6 and 7). Exclude `external/`, generated files and binary fixtures. If the scope is large (more than about 25 files), split it by area and launch one reviewer per area in parallel.
+
+   **8b. Launch the adversarial reviewer.** Use the Agent tool with `model: "opus"` and `subagent_type: "general-purpose"` (or "Explore" if you want it strictly read-only). The reviewer must not edit anything. Its prompt must be self-contained and include:
+   - the change name, the paths of the artifacts (proposal, specs, design, tasks) and the in-scope file list
+   - the findings from steps 5 to 7, so it does not repeat them and can challenge ones that look wrong
+   - the project rules it must check against, taken from `AGENTS.md` (threading and ownership rules, real-time rules, time model, no clip overlaps, "audio files are never modified", dependency direction between `src/` modules, no platform `#ifdef` outside `src/platform/`)
+   - an adversarial brief: assume the code is wrong and try to prove it. Hunt for correctness bugs, unhandled edge cases (empty, huge, corrupt or concurrent input), error paths that leak or crash, threading and lifetime problems, spec or design violations, data-loss risks, security issues, and tests that pass without testing anything. Do not report style nits or speculative refactors.
+   - an output format: a numbered list where each finding has `id`, `severity` (CRITICAL / WARNING / SUGGESTION), `file:line`, what is wrong, a concrete failure scenario (input or state, then wrong result), and a suggested fix. End with a "Concerns" list for risks that are not concrete bugs.
+
+   **8c. Triage.** Read the reviewer's list yourself and check each CRITICAL and WARNING against the code. Drop false positives and say why in the report. Sort what remains:
+   - **Fixable**: a bug or rule violation with an unambiguous fix inside the change's scope.
+   - **Needs a decision**: the fix would change a spec, a standing decision in `AGENTS.md`, the design, or the scope, or there are several reasonable fixes. Do not send these to the coder. Report them under open concerns.
+   - **Out of scope**: an unfinished task or missing requirement from step 5 or 6 (that is `/opsx:apply` work, not a fix), or a problem outside the change's files. Report these, do not fix them.
+
+   **8d. Launch the coder.** Skip if nothing is Fixable. Use the Agent tool with `model: "sonnet"`, once for all Fixable findings (several coders only when their files do not overlap). The prompt must include the Fixable findings verbatim, the in-scope files and the rules from `AGENTS.md`, and these constraints:
+   - make the smallest change that fixes each finding, and match the surrounding code's style
+   - add or adjust a test for every bug fixed, where the project's testing rules allow it
+   - do not edit the OpenSpec artifacts, `ROADMAP.md` or `AGENTS.md`, do not tick tasks, and do not commit
+   - build and run the affected tests (for example `cmake --build --preset windows-msvc-debug`, then `ctest --preset windows-msvc-debug`) and report the real output
+   - report, per finding id: Fixed / Not fixed, the files changed, and the reason if not fixed
+
+   **8e. Verify the fixes yourself.** Do not trust the coder's report. Read `git diff` for the files it changed, confirm that each "Fixed" finding is actually addressed, and run the build and tests again if the coder did not show passing output. A finding is only "Fixed" if the diff addresses it and the build and tests pass. If a fix broke the build or tests, mark that finding "Not fixed", note it in the report, and send it back to the coder once. A fix that is still broken after that is a CRITICAL issue.
+
+   **8f. Re-review.** If any fixes were made, launch the Opus reviewer once more (same brief) on the fix diff only, to catch bugs the fixes introduced. Send new Fixable findings to the coder one last time. Stop after two fix rounds in total. Whatever is still open after that goes into the report as an open concern.
+
+   After fixes, re-check anything in steps 5 to 7 that the fixes could have changed (for example a requirement or scenario that was flagged) and update the scorecard.
+
+9. **Generate Verification Report**
 
    **Summary Scorecard**:
    ```markdown
@@ -190,12 +221,15 @@ In both branches, never create the root as a side effect: do not run `openspec i
       - Each with specific recommendation
 
    **Final Assessment**:
+   - Open CRITICAL findings from the adversarial review, and fixes that failed the build or tests, count as CRITICAL issues. Open WARNINGs count as warnings. Add one line: "Adversarial review: F fixed, N not fixed, D dismissed; C concerns remain."
    - If CRITICAL issues: "X critical issue(s) found. Fix before archiving." If any check was skipped, also name every skipped check and its reason.
    - If no CRITICAL issues, one or more warnings, and no checks were skipped: "No critical issues. Y warning(s) to consider. Ready for archive (with noted improvements)."
    - If only suggestions and no checks were skipped: "No critical issues or warnings. Z suggestion(s) to consider. Ready for archive (with noted improvements)."
    - If no issues and no checks were skipped: "All checks passed. Ready for archive."
    - If any check was skipped and there are no CRITICAL issues: do not claim readiness. Say "No critical issues found in the checks that ran. <check(s)> not verified: <reason>." Include the warning count when nonzero.
    - Include the suggestion count when nonzero in every final assessment.
+
+The report ends with the Adversarial Review section described under "Output Format".
 
 **Verification Heuristics**
 
@@ -213,3 +247,25 @@ Use clear markdown with:
 - Code references in format: `file.ts:123`
 - Specific, actionable recommendations
 - No vague suggestions like "consider reviewing"
+
+   **Adversarial Review section** (always after the scorecard and issue lists; if step 8 was skipped, say so and give the reason):
+
+   ```markdown
+   ### Adversarial Review (Opus reviewer, Sonnet coder)
+   Scope: <N files>. Rounds: <1 or 2>. Mode: <full | review-only>.
+
+   | # | Severity | Location | Finding | Status | Notes |
+   |---|----------|----------|---------|--------|-------|
+   | 1 | CRITICAL | file.cpp:123 | <what the reviewer found> | Fixed | <what changed, test added> |
+   | 2 | WARNING  | file.cpp:88  | <...> | Not fixed | <why: needs decision / out of scope / fix failed> |
+   | 3 | WARNING  | file.cpp:40  | <...> | Dismissed | <why it is a false positive> |
+
+   **Fixed:** <count>. **Not fixed:** <count>. **Dismissed:** <count>.
+
+   **Remaining concerns:**
+   - <risks the reviewer raised that are not concrete bugs, fixes that need a user decision, and anything still open after two rounds>
+
+   **Code changed by the fixes:** <list of files>. Nothing is committed; review `git diff` before committing.
+   ```
+
+   Status is one of Fixed, Not fixed, or Dismissed. Never list a finding as Fixed unless step 8e confirmed it.

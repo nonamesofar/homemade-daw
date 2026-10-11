@@ -50,138 +50,72 @@ public:
 };
 } // namespace
 
-struct EngineHost::Impl
+struct EngineHost::Impl : private juce::Timer
 {
-    explicit Impl(const juce::String& appName) : engine(detail::makeEngine(appName))
+    Impl(EngineHost& o, const juce::String& appName) : owner(o), engine(detail::makeEngine(appName))
     {
         // The device manager owns it; it lives as long as the engine. Installing it takes the audio callback lock.
         auto processor = std::make_unique<OutputMuteProcessor>();
         mute = processor.get();
         engine->getDeviceManager().setGlobalOutputAudioProcessor(std::move(processor));
+        startedAtMs = juce::Time::getMillisecondCounter();
+        startTimer(50);
     }
 
+    ~Impl() override { stopTimer(); }
+
+    /** An output device is open and the engine knows an enabled default wave output (its start-up scan has run). */
+    bool deviceUsable() const
+    {
+        auto& dm = engine->getDeviceManager();
+        if (dm.deviceManager.getCurrentAudioDevice() == nullptr)
+            return false;
+        auto* out = dm.getDefaultWaveOutDevice();
+        return out != nullptr && out->isEnabled();
+    }
+
+    void timerCallback() override
+    {
+        const auto now = juce::Time::getMillisecondCounter();
+        if (! deviceUsable())
+        {
+            usableSinceMs = 0;
+            return;
+        }
+        if (usableSinceMs == 0)
+            usableSinceMs = now;
+        // A short settle after the scan result appears, then the optional developer hold.
+        if (now - usableSinceMs < settleMs || now - startedAtMs < holdMs)
+            return;
+
+        ready = true;
+        stopTimer();
+        if (owner.onAudioReady)
+            owner.onAudioReady();
+    }
+
+    static constexpr juce::uint32 settleMs = 300;
+
+    EngineHost& owner;
     std::unique_ptr<te::Engine> engine;
-    std::unique_ptr<te::Edit> edit;
     OutputMuteProcessor* mute = nullptr;
-    double lengthSeconds = 0.0;
+    bool ready = false;
+    juce::uint32 startedAtMs = 0, usableSinceMs = 0, holdMs = 0;
 };
 
-EngineHost::EngineHost(const juce::String& appName) : impl(std::make_unique<Impl>(appName)) {}
+EngineHost::EngineHost(const juce::String& appName) : impl(std::make_unique<Impl>(*this, appName)) {}
 
-EngineHost::~EngineHost()
-{
-    if (impl->edit != nullptr)
-        impl->edit->getTransport().stop(false, false);
-}
+bool EngineHost::isAudioReady() const { return impl->ready; }
 
-bool EngineHost::loadFile(const juce::File& file)
-{
-    if (impl->edit != nullptr)
-        impl->edit->getTransport().stop(false, false);
+void EngineHost::holdAudioReadyFor(int milliseconds) { impl->holdMs = static_cast<juce::uint32>(juce::jmax(0, milliseconds)); }
 
-    impl->edit.reset();
-    impl->lengthSeconds = 0.0;
+te::Engine& EngineHost::tracktionEngine() const { return *impl->engine; }
 
-    te::AudioFile audioFile(*impl->engine, file);
-    if (!audioFile.isValid())
-        return false;
-
-    auto edit = te::Edit::createSingleTrackEdit(*impl->engine);
-    auto tracks = te::getAudioTracks(*edit);
-    if (tracks.isEmpty())
-        return false;
-
-    const auto length = audioFile.getLength();
-    auto clip = tracks.getFirst()->insertWaveClip(
-        file.getFileNameWithoutExtension(), file,
-        {{tracktion::TimePosition(), tracktion::TimeDuration::fromSeconds(length)}, {}}, false);
-    if (clip == nullptr)
-        return false;
-
-    impl->lengthSeconds = length;
-    impl->edit = std::move(edit);
-    impl->edit->getTransport().ensureContextAllocated();
-    return true;
-}
-
-double EngineHost::loadedLengthSeconds() const { return impl->lengthSeconds; }
-
-void EngineHost::play()
-{
-    if (impl->edit != nullptr)
-        impl->edit->getTransport().play(false);
-}
-
-void EngineHost::stop()
-{
-    if (impl->edit != nullptr)
-        impl->edit->getTransport().stop(false, false);
-}
-
-bool EngineHost::isPlaying() const { return impl->edit != nullptr && impl->edit->getTransport().isPlaying(); }
-
-double EngineHost::positionSeconds() const
-{
-    return impl->edit != nullptr ? impl->edit->getTransport().getPosition().inSeconds() : 0.0;
-}
-
-void EngineHost::setPositionSeconds(double s)
-{
-    if (impl->edit != nullptr)
-        impl->edit->getTransport().setPosition(tracktion::TimePosition::fromSeconds(s));
-}
-
-void EngineHost::setTempo(double bpm)
-{
-    if (impl->edit != nullptr)
-        impl->edit->tempoSequence.getTempo(0)->setBpm(bpm);
-}
+EngineHost::~EngineHost() = default;
 
 void EngineHost::setOutputMuted(bool muted) { impl->mute->muted.store(muted); }
 
 bool EngineHost::isOutputMuted() const { return impl->mute->muted.load(); }
-
-float EngineHost::masterVolumeDb() const
-{
-    if (impl->edit != nullptr)
-        if (auto master = impl->edit->getMasterVolumePlugin())
-            return master->getVolumeDb();
-    return 0.0f;
-}
-
-juce::String EngineHost::editStateXml() const
-{
-    return impl->edit != nullptr ? impl->edit->state.toXmlString() : juce::String();
-}
-
-juce::String EngineHost::undoHistoryDescription() const
-{
-    if (impl->edit == nullptr)
-        return {};
-    auto& undo = impl->edit->getUndoManager();
-    return undo.getUndoDescriptions().joinIntoString("|") + " pending=" + juce::String(undo.getNumActionsInCurrentTransaction());
-}
-
-bool EngineHost::renderToWav(const juce::File& dest, double startSeconds, double lengthSeconds, double sampleRate)
-{
-    if (impl->edit == nullptr)
-        return false;
-
-    dest.deleteFile();
-
-    te::Renderer::Parameters params(*impl->edit);
-    params.destFile = dest;
-    params.tracksToDo = te::toBitSet(te::getAllTracks(*impl->edit));
-    params.audioFormat = impl->engine->getAudioFileFormatManager().getWavFormat();
-    params.bitDepth = 24;
-    params.sampleRateForAudio = sampleRate;
-    params.blockSizeForAudio = 512;
-    params.canRenderInMono = false;
-    params.time = tracktion::TimeRange(tracktion::TimePosition::fromSeconds(startSeconds),
-                                       tracktion::TimeDuration::fromSeconds(lengthSeconds));
-
-    return te::Renderer::renderToFile("Sampler render", params).existsAsFile();
-}
 
 std::unique_ptr<juce::AudioThumbnailBase> EngineHost::createThumbnail(const juce::File& file,
                                                                       juce::Component& repaintTarget) const
@@ -209,6 +143,20 @@ DecodeInfo EngineHost::probeDecode(const juce::File& file) const
     info.channels = static_cast<int>(reader->numChannels);
     info.formatName = reader->getFormatName();
     return info;
+}
+
+double EngineHost::currentSampleRate() const
+{
+    if (auto* device = impl->engine->getDeviceManager().deviceManager.getCurrentAudioDevice())
+        return device->getCurrentSampleRate();
+    return 0.0;
+}
+
+int EngineHost::currentBufferSize() const
+{
+    if (auto* device = impl->engine->getDeviceManager().deviceManager.getCurrentAudioDevice())
+        return device->getCurrentBufferSizeSamples();
+    return 0;
 }
 
 juce::String EngineHost::currentAudioDeviceType() const
@@ -239,20 +187,4 @@ juce::String EngineHost::describeAudioSetup() const
     return text;
 }
 
-juce::String EngineHost::describeTransport() const
-{
-    if (impl->edit == nullptr)
-        return "no edit";
-    auto& t = impl->edit->getTransport();
-    return juce::String("playing=") + (t.isPlaying() ? "1" : "0") + " stopping=" + (t.isStopping() ? "1" : "0")
-           + " context=" + (t.isPlayContextActive() ? "1" : "0") + " pos=" + juce::String(t.getPosition().inSeconds(), 3)
-           + " cpu=" + juce::String(impl->engine->getDeviceManager().getCpuUsage(), 3);
-}
-
-int EngineHost::xrunCount() const
-{
-    if (auto* device = impl->engine->getDeviceManager().deviceManager.getCurrentAudioDevice())
-        return device->getXRunCount();
-    return -1;
-}
 } // namespace sampler

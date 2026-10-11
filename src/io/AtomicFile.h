@@ -19,4 +19,10 @@ bool writeFileAtomically(const juce::File& destination, const void* data, size_t
 /** Same, writing the first half, then calling `midWrite`, then the rest (tests: kill the process while half written). */
 bool writeFileAtomicallyInTwoParts(const juce::File& destination, const void* data, size_t size,
                                    const std::function<void(const juce::File& temporaryFile)>& midWrite);
+
+/**
+    Moves `from` over `to` with one rename that replaces an existing target (never delete-then-move), retrying briefly.
+    Both must be on the same volume. For files written to a temporary name next to their destination.
+*/
+bool renameReplacing(const juce::File& from, const juce::File& to);
 } // namespace sampler::io
