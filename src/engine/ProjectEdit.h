@@ -4,9 +4,21 @@
 
 #include <memory>
 
+namespace tracktion { inline namespace engine
+{
+class Edit;
+}} // namespace tracktion::engine
+
 namespace sampler
 {
 class EngineHost;
+
+namespace engine
+{
+class Arrangement;
+class LevelMeters;
+class Transport;
+} // namespace engine
 
 namespace detail
 {
@@ -20,14 +32,18 @@ bool moveBundleFolder(const juce::File& source, const juce::File& destination, b
 
 /**
     The open project: a Tracktion edit plus its bundle folder (`Name.sdaw/`). The header exposes no Tracktion types.
-    What the rest of the app sees is the SAMPLER ValueTree (the document that commands edit), the edit's undo manager,
-    the bundle folder and the dirty state.
+    What the rest of the app sees is the SAMPLER ValueTree (the document that commands edit), the arrangement facade,
+    the transport, the level meters, the edit's undo manager and the bundle folder. (Whether the project has unsaved
+    changes comes from the undo history in CommandService, design D-4.)
 
     Bundle layout (docs/projects.md):
         project.tracktionedit   the edit (Tracktion XML) with our <SAMPLER schemaVersion="1"> section inside
         audio/originals/        copies of the files the user imported
         audio/                  decoded working copies (32-bit float WAV)
         cache/                  disposable: thumbnails, proxies, renders (the engine temp directory points here)
+
+    A project without audio tracks (new, or saved by M1) gets one track "Audio 1" when it is created or opened, outside
+    the undo history and without rewriting the file (design D-12).
 
     Must be destroyed before the EngineHost it was created with. Message thread only.
 */
@@ -58,6 +74,15 @@ public:
 
     /** The SAMPLER node inside the edit. The same node for the life of the project. */
     juce::ValueTree samplerState() const;
+    /** Tracks, clips, mixer, tempo and loop range (design D-1). */
+    engine::Arrangement& arrangement();
+    const engine::Arrangement& arrangement() const;
+    engine::Transport& transport();
+    engine::LevelMeters& levelMeters();
+    /** The Tracktion edit, for code inside src/engine only (include EngineSetup.h to use it). */
+    tracktion::engine::Edit& tracktionEdit();
+    /** Names of the decoded files that clips use but that are missing (found when the project was opened). */
+    juce::StringArray missingFiles() const;
     /** The edit's own undo manager: our commands record into it. */
     juce::UndoManager& undoManager();
 
@@ -71,7 +96,7 @@ public:
     juce::String name() const;
     bool isUntitled() const;
 
-    /** Gives the edit its audio playback context (what pressing play on it will use). M2 calls this; M1 tests use it to check that audition plays beside it. */
+    /** Gives the edit its audio playback context (what pressing play on it will use). */
     void prepareForPlayback();
 
     /** Points the engine's temporary directory at this project's cache (done on open; redo it after a failed open of another). */
@@ -89,9 +114,6 @@ public:
 
     /** Closes the edit and deletes the bundle folder of an untitled project. Does nothing for a saved project. */
     void discardUntitled();
-
-    /** True when the SAMPLER section changed (including by undo or redo) since the last save or since creation. */
-    bool isDirty() const;
 
 private:
     struct Impl;

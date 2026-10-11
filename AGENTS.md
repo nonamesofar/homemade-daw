@@ -3,7 +3,7 @@
 Working name "Sampler". A solo hobby desktop DAW: import audio (wav/mp3/flac/ogg/m4a) or **capture computer audio** (e.g. a YouTube video in the browser), chop it into slices in a sample editor, play slices from 4x4 pads, arrange clips on several tracks, host third-party plugins (**Native Instruments Maschine 3** is the acceptance test), and export WAV/MP3/stems.
 
 ## Repo state (as of 2026-10-09)
-Milestone **M0 (spike)** is done: the build skeleton, CI, probes, the JUCE test plugin and 40 tests exist (results in `docs/m0-findings.md`; the spike app was removed in M1). Every Tracktion assumption passed, so the Tracktion design stands and the custom-engine fallback is not needed. Next is **M1**. The repo holds:
+Milestone **M0 (spike)** is done: the build skeleton, CI, probes, the JUCE test plugin and 40 tests exist (results in `docs/m0-findings.md`; the spike app was removed in M1). Every Tracktion assumption passed, so the Tracktion design stands and the custom-engine fallback is not needed. M1 (core, import) is done and archived. **M2 (arrangement) is implemented** (change `m2-arrangement`: tracks, clips, transport, mixer, loop, tempo, inspector, `sampler-cli`, golden tests) and waits for the PO demos D1 to D8; see ROADMAP.md. The repo holds:
 - `technical design/technical-design.md`: the authoritative design (v2). Section numbers below (e.g. "§6.4") refer to it. Read the relevant section before implementing a feature in depth; this file covers the decisions and rules that apply everywhere.
 - `technical design/tech-comparison-rust-vs-cpp.md`: why C++/JUCE/Tracktion was chosen. `technical design/archive/` holds the superseded v1 (Tauri/Rust/React). Do not use v1, except its §5 custom-engine design, which is the fallback if Tracktion fails an M0 check.
 - `concepts/`: HTML UX mocks (`index.html` opens Session, Arrangement and Sample editor boards from `concepts/project/*.dc.html`).
@@ -52,7 +52,7 @@ If a change has no user-visible effect (refactor, build, tests), say so in secti
 One process. Tracktion owns the document and the playback. A thin "Sampler layer" adds what Tracktion lacks: the sample library, analysis, slicing, pads, the Beats warp mode and the Command API.
 
 **Source layout and dependency direction** (enforced through CMake target links):
-`analysis` <- `render`; `model` <- `commands`; `analysis, render, model` <- `engine` <- `commands` <- `io` <- `ui` <- `app`.
+`analysis` <- `render`; `model` <- `commands`; `analysis, render, model` <- `engine` <- `commands` <- `io` <- `ui` <- `app`. (Since M2: `commands` and `ui` link `engine`'s Tracktion-free facade `engine::Arrangement` / `Transport` / `LevelMeters`; Tracktion itself stays private to `sampler_engine`.)
 | Dir | Contents |
 |---|---|
 | `src/model/` | Wrappers for the `SAMPLER` ValueTree subtree (Source, SliceSet, Slice, ClipMeta), ids, migrations. No GUI, no audio thread |
@@ -65,7 +65,7 @@ One process. Tracktion owns the document and the playback. A thin "Sampler layer
 | `src/platform/windows|mac/` | **The only place for OS-specific code** (WASAPI loopback capture, Media Foundation M4A reader, MMCSS, permissions), behind small interfaces such as `ICaptureSource` |
 | `src/app/` | `Main.cpp`, MainWindow, command IDs, the `--scan` child-process entry |
 | `src/engine/testkit/` | Test-only engine helpers (`EditLab`, `PluginLab`, `FilePlayer`), target `sampler_engine_testkit`, linked only by tests and probes |
-| `tools/` | Developer executables: `sampler-cli` (headless render and analysis, later), `make-fixtures`, `probes/`, `benchmarks/` |
+| `tools/` | Developer executables: `sampler-cli` (`render <bundle> <out.wav>`, headless; analysis later), `make-fixtures`, `probes/`, `benchmarks/` |
 | `tests/` | Catch2 test executables by area; `testplugin/` = the JUCE VST3 test plugin; `audio-fixtures/` = synthesised audio in Git LFS; later `golden`, `migrations` (golden = plugin-free `.sdaw` fixtures rendered at a fixed block size) |
 
 All Tracktion calls stay in `engine/` and `commands/`, so that Tracktion can be replaced by the fallback engine.

@@ -1,6 +1,12 @@
 #pragma once
 
 #include "AppController.h"
+#include "commands/ArrangeCommands.h"
+#include "ui/KeyboardRouter.h"
+#include "ui/arrange/ArrangeLogic.h"
+#include "ui/arrange/ArrangementView.h"
+#include "ui/arrange/ClipInspector.h"
+#include "ui/arrange/HeaderBar.h"
 #include "ui/browser/BrowserPanel.h"
 #include "ui/widgets/Toast.h"
 #include "ui/widgets/WidgetGallery.h"
@@ -9,7 +15,7 @@
 
 namespace sampler::app
 {
-/** Ids of the commands in the menus. */
+/** Ids of the commands in the menus and the shortcut tables. */
 enum CommandIds : int
 {
     newCommand = 0x1000,
@@ -20,16 +26,35 @@ enum CommandIds : int
     quitCommand,
     undoCommand,
     redoCommand,
-    widgetGalleryCommand
+    widgetGalleryCommand,
+    cutCommand,
+    copyCommand,
+    pasteCommand,
+    duplicateCommand,
+    splitCommand,
+    deleteCommand,
+    selectAllCommand,
+    newTrackCommand,
+    deleteTrackCommand,
+    playStopCommand,
+    playFromSelectionCommand,
+    returnToStartCommand,
+    loopToggleCommand,
+    loopToSelectionCommand,
+    muteCommand,
+    soloCommand,
+    zoomToSelectionCommand,
+    zoomToSongCommand
 };
 
 /**
-    The content of the main window: menu bar, header, sample browser on the left, the main view area (a placeholder
-    until the arrangement exists) and the toast overlay. Holds no logic of its own: it shows what the controller says
-    and passes the user's actions to it.
+    The content of the main window: menu bar, header (brand, transport and project controls), sample browser on the
+    left, the arrangement in the main area and the clip inspector below it, and the toast overlay. Holds no logic of
+    its own beyond routing: it shows what the controller and the project say and turns the user's actions into
+    commands. Keys go through the KeyboardRouter (design D-9): a dialog or a text field gets them first.
 */
-class MainComponent : public juce::Component, public juce::FileDragAndDropTarget, public juce::MenuBarModel,
-                      public juce::ApplicationCommandTarget, private juce::ChangeListener
+class MainComponent : public juce::Component, public juce::FileDragAndDropTarget, public juce::DragAndDropContainer,
+                      public juce::MenuBarModel, public juce::ApplicationCommandTarget, private juce::ChangeListener
 {
 public:
     explicit MainComponent(AppController&);
@@ -37,6 +62,12 @@ public:
 
     ui::BrowserPanel& browser() { return browserPanel; }
     ui::Toast& toasts() { return toast; }
+    /** The parts that belong to the open project (null while there is none). */
+    ui::ArrangementView* arrangement() { return arrangementView.get(); }
+    ui::HeaderBar* header() { return headerBar.get(); }
+    ui::ClipInspector* inspector() { return clipInspector.get(); }
+    ui::SelectionModel& selection() { return selectionModel; }
+    const std::vector<commands::ClipRecord>& clipboard() const { return copied; }
 
     juce::ApplicationCommandManager& commandManager() { return commands; }
 
@@ -54,11 +85,18 @@ public:
 
     /** Re-reads everything from the controller (also done on every change message). */
     void refresh();
+    /** One display frame (the VBlankAttachment calls it; tests call it directly). */
+    void tick(double elapsedMs);
+
+    /** Runs a menu command as if chosen (tests and the shortcut tables). */
+    bool invoke(juce::CommandID);
 
     //==============================================================================
     void paint(juce::Graphics&) override;
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress&) override;
+    bool keyStateChanged(bool isKeyDown) override;
 
     bool isInterestedInFileDrag(const juce::StringArray&) override { return true; }
     void fileDragEnter(const juce::StringArray&, int, int) override;
@@ -76,19 +114,40 @@ public:
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override { refresh(); }
+    void installDialogs();
+    void buildProjectViews();
+    void dropProjectViews();
+    void selectionChanged();
+
+    // Edit operations on the selection.
+    std::vector<engine::ClipInfo> selectedClips() const;
+    std::vector<juce::String> clipsUnderPlayhead(bool selectedOnly) const;
+    void copySelection();
+    void deleteSelection();
+    void paste();
+    void undoOrRedo(bool redo);
+    void toggleTrackParam(commands::SetTrackParam::Control);
 
     AppController& controller;
     juce::ApplicationCommandManager commands;
     juce::MenuBarComponent menuBar;
     ui::BrowserPanel browserPanel;
     ui::Toast toast;
+    juce::TooltipWindow tooltips{this, 600};
+    ui::SelectionModel selectionModel;
+    std::unique_ptr<ui::HeaderBar> headerBar;
+    std::unique_ptr<ui::ArrangementView> arrangementView;
+    std::unique_ptr<ui::ClipInspector> clipInspector;
+    std::vector<commands::ClipRecord> copied;
+    ui::KeyboardRouter keyRouter;
     juce::String audioStatus;
     juce::String progressLabel;
     double progressValue = -1.0;
     int shownGeneration = -1;
     bool dragOver = false;
     std::unique_ptr<juce::FileChooser> chooser, saveChooser;
-    void installDialogs();
     std::unique_ptr<juce::DocumentWindow> galleryWindow;
+    std::unique_ptr<juce::VBlankAttachment> vblank;
+    double lastVBlank = 0.0;
 };
 } // namespace sampler::app

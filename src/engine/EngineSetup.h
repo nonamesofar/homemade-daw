@@ -8,8 +8,11 @@
 
 namespace sampler::detail
 {
-/** The one place an engine is constructed: our UI behaviour (runs render tasks) and no audio input. */
-std::unique_ptr<tracktion::engine::Engine> makeEngine(const juce::String& appName);
+/**
+    The one place an engine is constructed: our UI behaviour (runs render tasks) and no audio input. `headless` opens no
+    audio device at all (offline renders, the command-line tool, tests).
+*/
+std::unique_ptr<tracktion::engine::Engine> makeEngine(const juce::String& appName, bool headless = false);
 
 /**
     Saves the edit to its own file (the edit's editFileRetriever) so that the file is always either the old version or

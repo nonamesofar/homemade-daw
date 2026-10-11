@@ -78,3 +78,10 @@ Reading the numbers: the whole beats path (analysis plus placement) is far cheap
 - Test plugin: build target `SamplerTestPlugin_VST3` (JUCE `juce_add_plugin`, static runtime); it exports `sampler_testplugin_processBlockCount()` so tests can count host calls.
 - JUCE pinned to the commit Tracktion v3.2.0 pins (8.0.6 + 19 commits), not 8.0.15.
 - Debug presets: `juce_recommended_config_flags` adds `/Od`, which cancels `/O2`; the engine target does not link it.
+
+## M2 additions (task 1.2)
+
+| # | Check | Result |
+|---|---|---|
+| M2-a | A native-speed clip after a tempo change | Keeps its start beat and its length in seconds; its length in beats changes (120 -> 90 BPM: 2 s is 4 beats before, 3 after). `SetTempo` re-fixes overlaps in the same undo step. |
+| M2-b | Undo of the loop range written through the edit's UndoManager | Reaches the transport: `getLoopRange()` reads the restored value. No fallback node needed. |

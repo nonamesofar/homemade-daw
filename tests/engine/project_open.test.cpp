@@ -36,17 +36,35 @@ sampler::model::SourceData soundData(int n)
     return d;
 }
 
-/** Adds `count` sounds (with small stand-in files on disk), each as its own undo step. */
-void addSounds(sampler::ProjectEdit& project, int count, int firstNumber = 1)
+/** The project with the command service that edits it and the token of the last save (dirty state, design D-4). */
+struct Tracked
 {
-    sampler::model::SamplerState state(project.samplerState());
+    explicit Tracked(sampler::ProjectEdit& p)
+        : project(p), commands(p.samplerState(), p.undoManager(), p.bundleDir(), &p.arrangement())
+    {
+    }
+    bool dirty() const { return commands.historyToken() != saved; }
+    void markSaved()
+    {
+        commands.setBundleDir(project.bundleDir());
+        saved = commands.historyToken();
+    }
+
+    sampler::ProjectEdit& project;
+    sampler::commands::CommandService commands;
+    int saved = 0;
+};
+
+/** Adds `count` sounds (with small stand-in files on disk), each as its own undo step. */
+void addSounds(Tracked& tracked, int count, int firstNumber = 1)
+{
+    auto& project = tracked.project;
     for (int i = 0; i < count; ++i)
     {
         const auto data = soundData(firstNumber + i);
         project.bundleDir().getChildFile(data.original).replaceWithText("original " + data.name);
         project.bundleDir().getChildFile(data.decoded).replaceWithText("decoded " + data.name);
-        project.undoManager().beginNewTransaction("Add " + data.name);
-        state.addSource(sampler::model::Source::create(data), &project.undoManager());
+        tracked.commands.apply(std::make_unique<sampler::commands::AddSources>(std::vector<sampler::model::SourceData>{data}));
     }
 }
 
@@ -63,11 +81,14 @@ TEST_CASE("a saved project reopens with its three sounds", "[engine][project]")
     {
         auto project = sampler::ProjectEdit::createUntitled(host, root.getChildFile("untitled"), error);
         REQUIRE(project != nullptr);
-        addSounds(*project, 3);
+        Tracked tracked(*project);
+        addSounds(tracked, 3);
+        CHECK(tracked.dirty());
         REQUIRE(project->saveAs(target, error));
+        tracked.markSaved();
         CHECK(project->name() == "Beat1");
         CHECK_FALSE(project->isUntitled());
-        CHECK_FALSE(project->isDirty());
+        CHECK_FALSE(tracked.dirty());
     }
     CHECK(root.getChildFile("untitled").getNumberOfChildFiles(juce::File::findDirectories) == 0); // moved, not copied
 
@@ -77,8 +98,7 @@ TEST_CASE("a saved project reopens with its three sounds", "[engine][project]")
     REQUIRE(state.numSources() == 3);
     CHECK(state.sourceAt(2).name() == "sound3");
     CHECK(state.schemaVersion() == 1);
-    CHECK_FALSE(reopened->isDirty());
-    CHECK_FALSE(reopened->undoManager().canUndo()); // the history is not saved
+    CHECK_FALSE(reopened->undoManager().canUndo()); // the history is not saved, so a reopened project is clean
     CHECK(reopened->name() == "Beat1");
     CHECK(target.getChildFile("audio/sound1.wav").existsAsFile());
     CHECK(target.getChildFile("cache").isDirectory());
@@ -94,9 +114,9 @@ TEST_CASE("a category changed by the user survives save and reopen", "[engine][p
     {
         auto project = sampler::ProjectEdit::createUntitled(host, root.getChildFile("untitled"), error);
         REQUIRE(project != nullptr);
-        addSounds(*project, 2);
-        sampler::commands::CommandService service(project->samplerState(), project->undoManager(), project->bundleDir());
-        service.apply(std::make_unique<sampler::commands::SetSourceCategory>("src_00000002", sampler::model::Category::oneShot));
+        Tracked tracked(*project);
+        addSounds(tracked, 2);
+        tracked.commands.apply(std::make_unique<sampler::commands::SetSourceCategory>("src_00000002", sampler::model::Category::oneShot));
         REQUIRE(project->saveAs(target, error));
     }
     auto reopened = sampler::ProjectEdit::open(host, target, error);
@@ -186,11 +206,14 @@ TEST_CASE("Save As makes an independent copy and keeps undo", "[engine][project]
     const auto beat2 = root.getChildFile("Beat2.sdaw");
 
     auto project = sampler::ProjectEdit::createUntitled(host, root.getChildFile("untitled"), error);
-    addSounds(*project, 2);
+    auto tracked = std::make_unique<Tracked>(*project);
+    addSounds(*tracked, 2);
     REQUIRE(project->saveAs(beat1, error));
+    tracked->markSaved();
     const auto hash1 = hashOf(beat1.getChildFile("audio/originals/sound1.wav"));
 
     REQUIRE(project->saveAs(beat2, error)); // a saved project is copied
+    tracked->markSaved();
     CHECK(project->name() == "Beat2");
     CHECK(beat1.isDirectory());
     CHECK(hashOf(beat2.getChildFile("audio/originals/sound1.wav")) == hash1);
@@ -198,8 +221,9 @@ TEST_CASE("Save As makes an independent copy and keeps undo", "[engine][project]
     CHECK(project->undoManager().canUndo());                                  // undo history survives
 
     // Importing after Save As changes only the new copy.
-    addSounds(*project, 1, 3);
+    addSounds(*tracked, 1, 3);
     REQUIRE(project->save());
+    tracked.reset();
     project.reset();
     auto one = sampler::ProjectEdit::open(host, beat1, error);
     REQUIRE(one != nullptr);
@@ -224,18 +248,20 @@ TEST_CASE("Save As of an untitled project keeps the sounds, the history and a cl
     sampler::EngineHost host;
     juce::String error;
     auto project = sampler::ProjectEdit::createUntitled(host, root.getChildFile("untitled"), error);
-    addSounds(*project, 2);
-    CHECK(project->isDirty());
+    Tracked tracked(*project);
+    addSounds(tracked, 2);
+    CHECK(tracked.dirty());
 
     REQUIRE(project->saveAs(root.getChildFile("First"), error)); // ".sdaw" is added
+    tracked.markSaved();
     CHECK(project->bundleDir() == root.getChildFile("First.sdaw"));
     CHECK(project->editFile().existsAsFile());
     CHECK(project->bundleDir().getChildFile("audio/sound2.wav").existsAsFile());
-    CHECK_FALSE(project->isDirty());
-    CHECK(project->undoManager().canUndo());
+    CHECK_FALSE(tracked.dirty());
+    CHECK(tracked.commands.canUndo());
 
-    project->undoManager().undo(); // undo after save is an unsaved change
-    CHECK(project->isDirty());
+    tracked.commands.undo(); // undo after save is an unsaved change
+    CHECK(tracked.dirty());
 }
 
 TEST_CASE("discarding an untitled project deletes its folder, a saved one is kept", "[engine][project]")

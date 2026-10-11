@@ -52,14 +52,16 @@ public:
 
 struct EngineHost::Impl : private juce::Timer
 {
-    Impl(EngineHost& o, const juce::String& appName) : owner(o), engine(detail::makeEngine(appName))
+    Impl(EngineHost& o, const juce::String& appName, bool noDevice)
+        : owner(o), engine(detail::makeEngine(appName, noDevice)), headless(noDevice)
     {
         // The device manager owns it; it lives as long as the engine. Installing it takes the audio callback lock.
         auto processor = std::make_unique<OutputMuteProcessor>();
         mute = processor.get();
         engine->getDeviceManager().setGlobalOutputAudioProcessor(std::move(processor));
         startedAtMs = juce::Time::getMillisecondCounter();
-        startTimer(50);
+        if (! headless)
+            startTimer(50);
     }
 
     ~Impl() override { stopTimer(); }
@@ -99,13 +101,15 @@ struct EngineHost::Impl : private juce::Timer
     EngineHost& owner;
     std::unique_ptr<te::Engine> engine;
     OutputMuteProcessor* mute = nullptr;
+    bool headless = false;
     bool ready = false;
     juce::uint32 startedAtMs = 0, usableSinceMs = 0, holdMs = 0;
 };
 
-EngineHost::EngineHost(const juce::String& appName) : impl(std::make_unique<Impl>(*this, appName)) {}
+EngineHost::EngineHost(const juce::String& appName, bool headless) : impl(std::make_unique<Impl>(*this, appName, headless)) {}
 
 bool EngineHost::isAudioReady() const { return impl->ready; }
+bool EngineHost::isHeadless() const { return impl->headless; }
 
 void EngineHost::holdAudioReadyFor(int milliseconds) { impl->holdMs = static_cast<juce::uint32>(juce::jmax(0, milliseconds)); }
 

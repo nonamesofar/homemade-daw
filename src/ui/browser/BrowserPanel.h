@@ -14,6 +14,21 @@
 
 namespace sampler::ui
 {
+/** The list of sounds. It keeps focus after a click, but leaves Home, Enter and Delete to the app's shortcuts. */
+class SoundList : public juce::ListBox
+{
+public:
+    using juce::ListBox::ListBox;
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (key.isKeyCode(juce::KeyPress::homeKey) || key.isKeyCode(juce::KeyPress::returnKey)
+            || key.isKeyCode(juce::KeyPress::deleteKey) || key.isKeyCode(juce::KeyPress::backspaceKey))
+            return false;
+        return juce::ListBox::keyPressed(key); // Up and Down still move through the rows
+    }
+};
+
 /**
     The browser on the left: search box, the places (All samples, Loops, One-shots, Recordings) and the list of
     sounds. It draws what it is given (`setRows`) through a `BrowserModel` and reports clicks; it knows nothing about
@@ -36,6 +51,7 @@ public:
     void selectRowById(const juce::String& sourceId);
 
     juce::TextEditor& searchBox() { return search; }
+    SoundList& listBox() { return list; }
     void choosePlace(Place);
     Place place() const { return model.place(); }
     /** The count shown beside a place. */
@@ -69,6 +85,8 @@ private:
     int getNumRows() override { return static_cast<int>(currentRows.size()); }
     void paintListBoxItem(int row, juce::Graphics&, int width, int height, bool selected) override;
     void listBoxItemClicked(int row, const juce::MouseEvent&) override;
+    /** Dragging a ready sound gives "sample:<id>" (dropped on the timeline it becomes a clip). */
+    juce::var getDragSourceDescription(const juce::SparseSet<int>&) override;
 
     juce::AudioThumbnailBase* thumbnailFor(const juce::String& sourceId);
     void applyFilter();
@@ -90,7 +108,7 @@ private:
     BrowserModel model;
     juce::TextEditor search;
     std::array<juce::TextButton, 4> placeButtons;
-    juce::ListBox list{"sounds", this};
+    SoundList list{"sounds", this};
     ThumbnailFactory makeThumbnail;
     std::map<juce::String, Thumbnail> thumbnails;
     std::list<juce::String> recentlyDrawn; // front = most recent

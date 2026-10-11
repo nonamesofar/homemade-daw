@@ -158,3 +158,16 @@ TEST_CASE("the place buttons are real buttons: a click on one chooses it", "[ui]
     CHECK(f.panel.place() == sampler::ui::Place::oneShots);
     CHECK(f.panel.rowNames() == juce::StringArray{"Kick"});
 }
+
+TEST_CASE("the sound list leaves Home, Enter and Delete to the app but keeps arrow navigation", "[ui][browser]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    Fixture f;
+    f.setSources(3);
+    auto& list = f.panel.listBox();
+    CHECK_FALSE(list.keyPressed(juce::KeyPress(juce::KeyPress::homeKey)));
+    CHECK_FALSE(list.keyPressed(juce::KeyPress(juce::KeyPress::returnKey)));
+    CHECK_FALSE(list.keyPressed(juce::KeyPress(juce::KeyPress::deleteKey)));
+    CHECK_FALSE(list.keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)));
+    CHECK(list.keyPressed(juce::KeyPress(juce::KeyPress::downKey)));
+}

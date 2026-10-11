@@ -1,6 +1,9 @@
 #include "ProjectEdit.h"
 
+#include "Arrangement.h"
 #include "EngineHost.h"
+#include "LevelMeters.h"
+#include "Transport.h"
 #include "EngineSetup.h"
 #include "model/Migrations.h"
 #include "model/SamplerState.h"
@@ -42,31 +45,44 @@ bool moveBundleFolder(const juce::File& source, const juce::File& destination, b
 }
 } // namespace detail
 
-struct ProjectEdit::Impl : private juce::ValueTree::Listener
+struct ProjectEdit::Impl
 {
     Impl(EngineHost& h, const juce::File& bundle, bool isUntitled) : host(h), bundleDir(bundle), untitled(isUntitled) {}
 
-    ~Impl() override { samplerNode.removeListener(this); }
-
-    /** Starts counting changes of the SAMPLER section (the user's edits in M1; M2 extends this to tracks and clips). */
-    void watch()
+    ~Impl()
     {
-        samplerNode = edit->state.getChildWithName(model::ids::SAMPLER);
-        samplerNode.addListener(this);
+        // The facades refer to the edit: they go first.
+        meters.reset();
+        transport.reset();
+        arrangement.reset();
     }
 
-    void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override { ++changeCount; }
-    void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&) override { ++changeCount; }
-    void valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int) override { ++changeCount; }
-    void valueTreeChildOrderChanged(juce::ValueTree&, int, int) override { ++changeCount; }
+    /** Builds the facades over the loaded edit, adds the default track and notes missing files. */
+    void attach()
+    {
+        samplerNode = edit->state.getChildWithName(model::ids::SAMPLER);
+        arrangement = std::make_unique<engine::Arrangement>(*edit);
+        arrangement->addDefaultTrackIfEmpty();
+        transport = std::make_unique<engine::Transport>(*edit, host);
+        meters = std::make_unique<engine::LevelMeters>(*edit);
+        for (const auto& clip : arrangement->clips())
+        {
+            if (! clip.missing)
+                continue;
+            const auto source = model::SamplerState(samplerNode).findSourceById(clip.sourceId);
+            missing.addIfNotAlreadyThere(source.isValid() ? juce::File(source.decoded()).getFileName() : clip.name);
+        }
+    }
 
     EngineHost& host;
     juce::File bundleDir;
     bool untitled;
     std::unique_ptr<te::Edit> edit;
     juce::ValueTree samplerNode;
-    int changeCount = 0;
-    int savedChangeCount = 0;
+    std::unique_ptr<engine::Arrangement> arrangement;
+    std::unique_ptr<engine::Transport> transport;
+    std::unique_ptr<engine::LevelMeters> meters;
+    juce::StringArray missing;
 };
 
 ProjectEdit::ProjectEdit(std::unique_ptr<Impl> i) : impl(std::move(i)) {}
@@ -82,6 +98,9 @@ std::unique_ptr<ProjectEdit> ProjectEdit::createUntitled(EngineHost& host, const
     const auto bundle = untitledRoot.getChildFile(juce::Uuid().toDashedString() + bundleExtension);
     auto impl = std::make_unique<Impl>(host, bundle, true);
     const auto fail = [&](const juce::String& reason) -> std::unique_ptr<ProjectEdit> {
+        impl->meters.reset();
+        impl->transport.reset();
+        impl->arrangement.reset();
         impl->edit.reset(); // the edit must let go of its files before the half-made folder goes
         deleteFolder(bundle);
         error = reason;
@@ -100,10 +119,14 @@ std::unique_ptr<ProjectEdit> ProjectEdit::createUntitled(EngineHost& host, const
     if (impl->edit == nullptr)
         return fail("Cannot create the project");
     impl->edit->state.appendChild(model::SamplerState::createEmpty(), nullptr);
+    // Tracktion starts a new edit's master at -3 dB; ours starts at 0 dB like the tracks (not an undo step).
+    if (auto master = impl->edit->getMasterVolumePlugin())
+        master->setVolumeDb(0.0f);
+    impl->edit->getUndoManager().clearUndoHistory();
+    impl->attach(); // with "Audio 1", before the first save
     if (! detail::saveEditAtomically(*impl->edit))
         return fail("Cannot save the new project file");
 
-    impl->watch();
     return std::unique_ptr<ProjectEdit>(new ProjectEdit(std::move(impl)));
 }
 
@@ -163,7 +186,7 @@ std::unique_ptr<ProjectEdit> ProjectEdit::open(EngineHost& host, const juce::Fil
     else
         model::migrateToCurrent(section);
 
-    impl->watch();
+    impl->attach();
     return std::unique_ptr<ProjectEdit>(new ProjectEdit(std::move(impl)));
 }
 
@@ -240,11 +263,20 @@ void ProjectEdit::discardUntitled()
 {
     if (! impl->untitled)
         return;
+    impl->meters.reset();
+    impl->transport.reset();
+    impl->arrangement.reset();
     impl->edit.reset();
     deleteFolder(impl->bundleDir);
 }
 
 juce::ValueTree ProjectEdit::samplerState() const { return impl->samplerNode; }
+engine::Arrangement& ProjectEdit::arrangement() { return *impl->arrangement; }
+const engine::Arrangement& ProjectEdit::arrangement() const { return *impl->arrangement; }
+engine::Transport& ProjectEdit::transport() { return *impl->transport; }
+engine::LevelMeters& ProjectEdit::levelMeters() { return *impl->meters; }
+te::Edit& ProjectEdit::tracktionEdit() { return *impl->edit; }
+juce::StringArray ProjectEdit::missingFiles() const { return impl->missing; }
 juce::UndoManager& ProjectEdit::undoManager() { return impl->edit->getUndoManager(); }
 
 juce::File ProjectEdit::bundleDir() const { return impl->bundleDir; }
@@ -267,13 +299,5 @@ void ProjectEdit::activateCache()
 
 void ProjectEdit::prepareForPlayback() { impl->edit->getTransport().ensureContextAllocated(); }
 
-bool ProjectEdit::save()
-{
-    if (! detail::saveEditAtomically(*impl->edit))
-        return false;
-    impl->savedChangeCount = impl->changeCount;
-    return true;
-}
-
-bool ProjectEdit::isDirty() const { return impl->changeCount != impl->savedChangeCount; }
+bool ProjectEdit::save() { return detail::saveEditAtomically(*impl->edit); }
 } // namespace sampler

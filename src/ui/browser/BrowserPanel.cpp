@@ -33,6 +33,7 @@ BrowserPanel::BrowserPanel()
     placeButtons[0].setToggleState(true, juce::dontSendNotification);
 
     list.setRowHeight(rowHeight);
+    list.setRowSelectedOnMouseDown(false); // a click acts on mouse up, so dragging a row to the timeline does not audition it
     list.setColour(juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
     addAndMakeVisible(list);
 }
@@ -255,6 +256,17 @@ void BrowserPanel::paintListBoxItem(int row, juce::Graphics& g, int width, int h
     g.setColour(item.importing ? theme::muted : theme::text);
     g.setFont(Fonts::sans(13.0f));
     g.drawText(item.name, area, juce::Justification::centredLeft, true);
+}
+
+juce::var BrowserPanel::getDragSourceDescription(const juce::SparseSet<int>& rowsToDrag)
+{
+    if (rowsToDrag.isEmpty())
+        return {};
+    const auto row = rowsToDrag[0];
+    if (! juce::isPositiveAndBelow(row, static_cast<int>(currentRows.size())))
+        return {};
+    const auto& r = currentRows[static_cast<size_t>(row)];
+    return r.importing || r.id.isEmpty() ? juce::var() : juce::var("sample:" + r.id);
 }
 
 void BrowserPanel::listBoxItemClicked(int row, const juce::MouseEvent& e)

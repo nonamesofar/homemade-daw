@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 /** The reusable widgets. All drawing uses the theme; all value maths lives in WidgetMath. */
 namespace sampler::ui
@@ -19,7 +20,7 @@ public:
 };
 
 /** A row of exclusive choices (Session | Arrange). */
-class SegmentedControl : public juce::Component
+class SegmentedControl : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     void setItems(const juce::StringArray&);
@@ -37,7 +38,7 @@ private:
 };
 
 /** A value that is changed by dragging up and down (Shift = fine) and typed after a double click. */
-class ValueField : public juce::Component, private juce::TextEditor::Listener
+class ValueField : public juce::Component, public juce::SettableTooltipClient, private juce::TextEditor::Listener
 {
 public:
     ValueField();
@@ -53,11 +54,36 @@ public:
     /** Applies typed text; returns false (and keeps the value) if it is not a number. */
     bool commitText(const juce::String&);
     std::function<void(double)> onChange;
+    /** A drag starts (mouse down) and ends (mouse up): the owner wraps the changes in between into one undo step. */
+    std::function<void()> onDragStart, onDragEnd;
+    /** Shows the value as text (default: the number with the suffix). */
+    std::function<juce::String(double)> formatter;
+    /** Turns typed text into a value (default: a plain number); empty refuses the text. */
+    std::function<std::optional<double>(const juce::String&)> parser;
+    /** While dragging, values within `detentWidth` of `detentValue` stick to it. */
+    std::optional<double> detentValue;
+    double detentWidth = 0.0;
+    /** Double-click puts the default value back instead of opening the text editor. */
+    bool doubleClickResets = false;
+    /** A single click (without dragging) opens the text editor. */
+    bool clickToType = false;
+    /** False: the value is only typed (a click opens the editor), never dragged. */
+    bool dragEnabled = true;
+    /** Look: box around the value, text size and alignment. */
+    bool drawBox = true;
+    float fontHeight = 15.0f;
+    juce::Justification justification = juce::Justification::centred;
+    bool isDragging() const { return dragging; }
+    bool isEditing() const { return editor != nullptr; }
+    /** Opens the text editor (as a double click does). */
+    void showEditor();
+    juce::TextEditor* textEditor() { return editor.get(); }
 
     void paint(juce::Graphics&) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
 
 private:
@@ -69,13 +95,14 @@ private:
     ValueRange range;
     double value = 0.0;
     double dragStart = 0.0;
+    bool dragging = false, moved = false;
     juce::String suffix;
     int decimals = 2;
     std::unique_ptr<juce::TextEditor> editor;
 };
 
 /** A rotary control: drag up and down, double-click resets to the default. */
-class Knob : public juce::Component
+class Knob : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     void setRange(const ValueRange& r)
@@ -91,16 +118,22 @@ public:
     void setValue(double v, bool notify = false);
     double getValue() const { return value; }
     std::function<void(double)> onChange;
+    std::function<void()> onDragStart, onDragEnd;
+    std::optional<double> detentValue;
+    double detentWidth = 0.0;
+    bool isDragging() const { return dragging; }
 
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
 
 private:
     ValueRange range;
     double value = 0.0;
     double dragStart = 0.0;
+    bool dragging = false;
     juce::String label;
 };
 

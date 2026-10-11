@@ -344,7 +344,7 @@ ImportService::~ImportService()
         registry.remove(id); // the window must not keep showing rows for an import that was cut off
 }
 
-void ImportService::importFiles(const juce::Array<juce::File>& files)
+void ImportService::importFiles(const juce::Array<juce::File>& files, std::optional<commands::PlacementTarget> placement)
 {
     if (files.isEmpty())
         return;
@@ -353,7 +353,7 @@ void ImportService::importFiles(const juce::Array<juce::File>& files)
     for (const auto& f : files)
         names.add(f.getFileNameWithoutExtension());
     const auto label = files.size() == 1 ? "Importing " + files[0].getFileName() : "Importing " + juce::String(files.size()) + " files";
-    const int jobId = registry.add(label, names);
+    const int jobId = registry.add(label, names, placement);
     ++pendingBatches;
     activeJobIds.push_back(jobId);
 
@@ -371,13 +371,14 @@ void ImportService::importFiles(const juce::Array<juce::File>& files)
     juce::WeakReference<ImportService> self(this);
     const auto bundle = bundleDir();
 
-    pool.addJob([self, files, bundle, jobId, knownHashes, cancel = cancelled]() {
+    pool.addJob([self, files, bundle, jobId, knownHashes, placement, cancel = cancelled]() {
         juce::AudioFormatManager formats;
         registerImportFormats(formats);
         std::set<juce::String> seenInBatch;
         std::vector<Prepared> ready;
         std::vector<ImportMessage> messages;
         std::vector<std::pair<juce::String, juce::String>> duplicates; // file name, hash
+        std::vector<juce::String> hashesInOrder;                       // ready and duplicate files, as dropped
         std::vector<juce::File> written;
 
         const auto removeWritten = [&written] {
@@ -411,10 +412,14 @@ void ImportService::importFiles(const juce::Array<juce::File>& files)
                     p.fileName = outcome.fileName;
                     p.hash = outcome.hash;
                     written.insert(written.end(), outcome.created.begin(), outcome.created.end());
+                    hashesInOrder.push_back(outcome.hash);
                     ready.push_back(std::move(p));
                     break;
                 }
-                case Outcome::Kind::duplicate: duplicates.emplace_back(outcome.fileName, outcome.hash); break;
+                case Outcome::Kind::duplicate:
+                    duplicates.emplace_back(outcome.fileName, outcome.hash);
+                    hashesInOrder.push_back(outcome.hash);
+                    break;
                 case Outcome::Kind::failed:
                     messages.push_back({ImportMessage::Kind::error, outcome.text, {}});
                     break;
@@ -440,9 +445,10 @@ void ImportService::importFiles(const juce::Array<juce::File>& files)
             messages.push_back({ImportMessage::Kind::duplicate, fileName + " is already in the project", hash});
 
         juce::MessageManager::callAsync([self, jobId, ready = std::move(ready), messages = std::move(messages),
-                                         written = std::move(written)]() mutable {
+                                         written = std::move(written), hashesInOrder = std::move(hashesInOrder),
+                                         placement]() mutable {
             if (self != nullptr)
-                self->finishBatch(jobId, std::move(ready), std::move(messages));
+                self->finishBatch(jobId, std::move(ready), std::move(messages), std::move(hashesInOrder), placement);
             else
                 for (const auto& f : written) // the importer is gone: nothing will ever record these files
                     f.deleteFile();
@@ -450,7 +456,8 @@ void ImportService::importFiles(const juce::Array<juce::File>& files)
     });
 }
 
-void ImportService::finishBatch(int jobId, std::vector<Prepared> ready, std::vector<ImportMessage> messages)
+void ImportService::finishBatch(int jobId, std::vector<Prepared> ready, std::vector<ImportMessage> messages,
+                                std::vector<juce::String> hashesInOrder, std::optional<commands::PlacementTarget> placement)
 {
     --pendingBatches;
     registry.remove(jobId);
@@ -478,7 +485,22 @@ void ImportService::finishBatch(int jobId, std::vector<Prepared> ready, std::vec
             notes.push_back({ImportMessage::Kind::info, item.fileName + ": mixed down to stereo", item.data.id});
     }
 
-    if (! toAdd.empty())
+    if (placement.has_value())
+    {
+        // The sounds to place, in the order they were dropped: new ones by their new id, known ones by their hash.
+        std::vector<juce::String> placeIds;
+        for (const auto& hash : hashesInOrder)
+        {
+            const auto added = std::find_if(toAdd.begin(), toAdd.end(), [&hash](const model::SourceData& d) { return d.hash == hash; });
+            if (added != toAdd.end())
+                placeIds.push_back(added->id);
+            else if (const auto existing = state.findSourceByHash(hash); existing.isValid())
+                placeIds.push_back(existing.id());
+        }
+        if (! toAdd.empty() || ! placeIds.empty())
+            commands.apply(std::make_unique<commands::ImportAndPlace>(std::move(toAdd), std::move(placeIds), *placement));
+    }
+    else if (! toAdd.empty())
         commands.apply(std::make_unique<commands::AddSources>(std::move(toAdd)));
 
     if (! onMessage)

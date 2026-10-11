@@ -49,6 +49,12 @@ public:
 
     //==============================================================================
     void importFiles(const juce::Array<juce::File>& files);
+    /** Files dropped on the timeline: imported, then placed as clips (one undo step with the import). */
+    void importAndPlace(const juce::Array<juce::File>& files, commands::PlacementTarget target);
+
+    /** The snap value, saved in the project (SAMPLER/UI) without an undo step and without marking it changed. */
+    juce::String snapName() const;
+    void setSnapName(const juce::String&);
     /** The user clicked a sound: start it, stop it, or (before the audio is ready) queue the request. */
     void toggleAudition(const juce::String& sourceId);
 
@@ -80,8 +86,14 @@ public:
     std::function<void(std::function<void(juce::File)> answer)> chooseProjectToOpen;
     /** Called when the app may quit (after the unsaved-changes question, if there was one). */
     std::function<void()> onQuitConfirmed;
+    /**
+        Called synchronously just before the open project goes away, and just after another one became the open one:
+        views that hold references into the project drop them in the first and rebuild in the second.
+    */
+    std::function<void()> onProjectClosing, onProjectAttached;
 
-    bool isDirty() const { return edit != nullptr && edit->isDirty(); }
+    /** Unsaved changes: the undo history is not where it was at the last save (design D-4). */
+    bool isDirty() const { return commands != nullptr && commands->historyToken() != savedToken; }
     void requestNew();
     void requestOpen();
     void requestSave();
@@ -122,6 +134,7 @@ private:
     juce::String startError;
     juce::File untitledRoot;
     int generation = 0;
+    int savedToken = 0;
     juce::uint32 startedAtMs = 0;
     juce::String lastPlayingId;
     juce::ValueTree watchedState; // the listener is registered on this instance, so it must outlive the call
