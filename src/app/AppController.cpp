@@ -1,5 +1,8 @@
 #include "AppController.h"
 
+#include "engine/Arrangement.h"
+#include "engine/LevelMeters.h"
+#include "engine/Transport.h"
 #include "model/SamplerState.h"
 
 #include <algorithm>
@@ -42,11 +45,18 @@ void AppController::attachProject(std::unique_ptr<ProjectEdit> project)
         return;
     edit = std::move(project);
     ++generation;
-    commands = std::make_unique<commands::CommandService>(edit->samplerState(), edit->undoManager(), edit->bundleDir());
+    commands = std::make_unique<commands::CommandService>(edit->samplerState(), edit->undoManager(), edit->bundleDir(),
+                                                          &edit->arrangement());
+    savedToken = commands->historyToken();
+    edit->arrangement().addChangeListener(this);
     importService = std::make_unique<io::ImportService>(edit->samplerState(), *commands, [this] { return edit->bundleDir(); }, registry);
     importService->onMessage = [this](const io::ImportMessage& message) { handleImportMessage(message); };
     watchedState = edit->samplerState();
     watchedState.addListener(this);
+    if (const auto missing = edit->missingFiles(); ! missing.isEmpty())
+        toast("Missing audio: " + missing.joinIntoString(", ") + ". Those clips stay silent.", true);
+    if (onProjectAttached)
+        onProjectAttached();
     sendChangeMessage();
 }
 
@@ -54,7 +64,11 @@ void AppController::closeProject()
 {
     if (edit == nullptr)
         return;
+    if (onProjectClosing)
+        onProjectClosing();
     audition->stop();
+    edit->transport().stop();
+    edit->arrangement().removeChangeListener(this);
     watchedState.removeListener(this);
     watchedState = {};
     importService.reset(); // waits for a running import
@@ -65,7 +79,7 @@ void AppController::closeProject()
 
 void AppController::guardUnsaved(std::function<void()> proceed)
 {
-    if (edit == nullptr || ! edit->isDirty() || ! askToSave)
+    if (edit == nullptr || ! isDirty() || ! askToSave)
     {
         proceed();
         return;
@@ -87,6 +101,8 @@ void AppController::saveThen(std::function<void()> next)
     }
     if (edit->save())
     {
+        savedToken = commands->historyToken();
+        commands->breakCoalescing();
         sendChangeMessage();
         if (next)
             next();
@@ -122,6 +138,8 @@ void AppController::saveAsThen(std::function<void()> next)
             return;
         }
         commands->setBundleDir(edit->bundleDir());
+        savedToken = commands->historyToken();
+        commands->breakCoalescing();
         sendChangeMessage();
         if (next)
             next();
@@ -219,6 +237,36 @@ void AppController::importFiles(const juce::Array<juce::File>& files)
 {
     if (importService != nullptr)
         importService->importFiles(files);
+}
+
+void AppController::importAndPlace(const juce::Array<juce::File>& files, commands::PlacementTarget target)
+{
+    if (importService != nullptr)
+        importService->importFiles(files, target);
+}
+
+namespace
+{
+const juce::Identifier uiNode("UI");
+const juce::Identifier snapProperty("snap");
+} // namespace
+
+juce::String AppController::snapName() const
+{
+    if (edit == nullptr)
+        return "1 bar";
+    const auto ui = edit->samplerState().getChildWithName(uiNode);
+    return ui.isValid() && ui.hasProperty(snapProperty) ? ui[snapProperty].toString() : juce::String("1 bar");
+}
+
+void AppController::setSnapName(const juce::String& name)
+{
+    if (edit == nullptr)
+        return;
+    // A view setting: no undo manager, so it is not an undo step and does not change the history (not dirty).
+    auto state = edit->samplerState();
+    state.getOrCreateChildWithName(uiNode, nullptr).setProperty(snapProperty, name, nullptr);
+    sendChangeMessage();
 }
 
 void AppController::toggleAudition(const juce::String& sourceId)
@@ -321,6 +369,6 @@ juce::String AppController::audioStatusText() const
 juce::String AppController::windowTitle() const
 {
     const auto name = edit != nullptr ? edit->name() : juce::String("Sampler");
-    return name + (edit != nullptr && edit->isDirty() ? "*" : "") + " - Sampler";
+    return name + (isDirty() ? "*" : "") + " - Sampler";
 }
 } // namespace sampler::app

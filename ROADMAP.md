@@ -3,8 +3,8 @@
 Source: `technical design/technical-design.md` §15 (the design doc stays authoritative for scope; this file tracks progress).
 Platform: Windows only for now (TODO-MAC). The MVP is M0 to M4.
 
-**Current milestone:** M1 Core + import
-**Last updated:** 2026-10-09
+**Current milestone:** M2b Capture (M2 accepted by the PO on 2026-10-11)
+**Last updated:** 2026-10-11
 
 Legend: `[ ]` not started, `[x]` done and verified. Tick a scope item only when it works and was checked; tick the exit criterion only when it was demonstrated. Put the OpenSpec change name in the `Change:` line when a proposal exists.
 
@@ -35,7 +35,7 @@ Change: `m0-spike` (34 of 34 tasks done; progress in `openspec/changes/m0-spike/
 - [x] **Exit:** all items pass, or a written decision to use the custom-engine fallback for each failing area (all pass; no fallback needed)
 
 ## M1 Core + import (3 wks)
-Change: `m1-core-import` (built as demos D1 to D7, see `openspec/changes/m1-core-import/tasks.md`)
+Change: `m1-core-import` (done, 41 of 41 tasks; built as demos D1 to D7, see `openspec/changes/archive/2026-10-11-m1-core-import/tasks.md`)
 
 - [x] App shell, `SamplerLookAndFeel` and widget set (IBM Plex embedded, widget gallery under Help; accepted in demo D7)
 - [x] Bundle new/open/save (demo D3)
@@ -45,19 +45,19 @@ Change: `m1-core-import` (built as demos D1 to D7, see `openspec/changes/m1-core
 - [x] Browser with search and categories (demo D6)
 - [x] Thumbnails (demo D5)
 - [x] Audition (demo D2)
-- [ ] **Exit:** import 5 formats (WAV, AIFF, FLAC, MP3, OGG), save/reopen, undo works, waveforms drawn. Each part was accepted in its own demo; waits for the single full run (task 8.1) and green CI (tasks 1.11 and 8.3)
+- [x] **Exit:** import 5 formats (WAV, AIFF, FLAC, MP3, OGG), save/reopen, undo works, waveforms drawn (all M1 tasks done; PR #2 merged with CI green on both presets)
 
 ## M2 Arrangement (4 to 6 wks)
-Change: _none yet_
+Change: `m2-arrangement` (built as demos D1 to D8, see `openspec/changes/archive/2026-10-11-m2-arrangement/tasks.md`; also includes tempo/time signature, copy/paste, clip inspector and track rename/colour). Implemented and covered by automated tests; all items below were accepted by the PO on 2026-10-11 (demos D1 to D8 and the exit run).
 
-- [ ] Timeline editing: move, trim, split, duplicate, delete, snap, marquee
-- [ ] Timeline scroll bar and no-overlap rule when dropping clips (M0 spike has wheel scrolling only and lets clips hide each other)
-- [ ] Track add, delete, drag-reorder
-- [ ] Loop brace
-- [ ] Mixer strips (volume, pan, mute, solo) and meters
-- [ ] Metronome and position display
-- [ ] Golden tests
-- [ ] **Exit:** build a 16-bar arrangement like the mock with 4 tracks; golden render tests pass
+- [x] Timeline editing: move, trim, split, duplicate, delete, snap, marquee
+- [x] Timeline scroll bar and no-overlap rule when dropping clips (M0 spike has wheel scrolling only and lets clips hide each other)
+- [x] Track add, delete, drag-reorder
+- [x] Loop brace (demo D6)
+- [x] Mixer strips (volume, pan, mute, solo) and meters
+- [x] Metronome and position display (demos D1 and D6)
+- [x] Golden tests (ten cases pass in debug; tick after the PO has listened to the references, see Decisions log)
+- [x] **Exit:** build a 16-bar arrangement like the mock with 4 tracks; golden render tests pass
 
 ## M2b Capture (2 to 3 wks)
 Change: _none yet_
@@ -171,3 +171,11 @@ Record decisions that came out of a milestone (for example a failed M0 check and
 - 2026-10-09: LAME was pulled forward from M4 into M1, because the MP3 gapless trim reads the LAME tag and the test fixtures need an encoder.
 - 2026-10-09: Untitled projects live in the app data folder (`Sampler/untitled/<uuid>.sdaw`); the first Save moves the folder to the chosen place.
 - 2026-10-09: Audition plays through a Tracktion preview edit; the planned plain-JUCE fallback was not needed. The first play starts from a 30 ms timer to avoid an engine stall (see `docs/m0-findings.md`).
+- 2026-10-11: M2 dirty state comes from the undo history (history token compared with the token at the last save), not from a ValueTree listener: Tracktion writes many properties that are not user edits.
+- 2026-10-11: M2 mixer controls (volume, pan, M, S, meter) live in the track headers and the master sits in the header bar, until the M6 mixer strips.
+- 2026-10-11: M2 task 1.2 results. (a) After a tempo change a native-speed clip keeps its start beat and its length in seconds, but not its length in beats (2 s / 1 bar at 120 BPM is 3 beats at 90): `SetTempo` keeps the start beats and shortens clips that now overlap in the same step. (b) The loop points are bound without the undo manager in Tracktion; `Arrangement::setLoopRange` writes the transport properties through the undo manager and an undo reaches the transport, so the `SAMPLER/ARRANGE` fallback is not needed.
+- 2026-10-11: Tracktion quirks handled in `engine::Arrangement`: its undo-transaction timer is held off (`UndoTransactionInhibitor`) so only `CommandService` opens steps; undo/redo of volume and pan do not reach the plugin parameters by themselves (re-synced after each change); `TempoSetting::setBpm` stops at 300 BPM (the spec asks for 999: the property is written directly above 300); a new edit's master volume starts at -3 dB (ours starts at 0 dB); an offline render with a clip whose file is missing never ends (such clips are left out of the render).
+- 2026-10-11: M2 golden references were generated by the renderer itself and checked only numerically (levels, lengths); the PO must listen to them once (`tests/golden/README.md`) before they are trusted.
+- 2026-10-11: M2 perf (task 3.5): with 200 clips and waveforms the first version of the lanes took up to 15 ms per paint in release (drawing the thumbnails); each clip's waveform is now drawn once into an image and reused while scrolling and zooming (one new picture per paint), giving a median of 1.3 ms and a worst of about 6 ms. The test is tagged `hardware` (wall-clock time), so CI leaves it out; run `ctest --preset windows-msvc-release -L perf`.
+- 2026-10-11: Tracktion's live volume and pan follow a change through a ramp of about a second (measured on the meters: -12 dB reaches -18 dBFS after about 1.5 s), so a dragged fader is heard approaching the new level, not at once.
+- 2026-10-11: Tracktion's `LevelMeasurer::Client::getAndClearOverload` reports a request to clear, not an overload; the over light is derived from the peak above 0 dBFS.

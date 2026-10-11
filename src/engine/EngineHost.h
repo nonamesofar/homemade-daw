@@ -33,7 +33,8 @@ struct DecodeInfo
 class EngineHost
 {
 public:
-    explicit EngineHost(const juce::String& appName = "Sampler");
+    /** `headless` opens no audio device (offline renders, the command-line tool); audio never becomes ready then. */
+    explicit EngineHost(const juce::String& appName = "Sampler", bool headless = false);
     ~EngineHost();
 
     //==============================================================================
@@ -42,6 +43,7 @@ public:
         (before that the transport starts and stops itself, see docs/m0-findings.md). Message thread only.
     */
     bool isAudioReady() const;
+    bool isHeadless() const;
 
     /** Called once on the message thread when the audio becomes ready (not called if it already is: check `isAudioReady`). */
     std::function<void()> onAudioReady;

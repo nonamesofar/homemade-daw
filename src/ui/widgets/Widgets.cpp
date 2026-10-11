@@ -11,6 +11,11 @@ constexpr double dragPixelsForFullRange = 160.0;
 
 /** Drag position of a vertical drag: pixels moved up since the mouse went down. */
 double movedUp(const juce::MouseEvent& e) { return static_cast<double>(e.getMouseDownPosition().y - e.getPosition().y); }
+
+double applyDetent(double v, const std::optional<double>& at, double width)
+{
+    return at.has_value() && std::abs(v - *at) <= width ? *at : v;
+}
 } // namespace
 
 //==============================================================================
@@ -105,10 +110,18 @@ void ValueField::setValue(double v, bool notify)
         onChange(value);
 }
 
-juce::String ValueField::text() const { return juce::String(value, decimals) + suffix; }
+juce::String ValueField::text() const { return formatter ? formatter(value) : juce::String(value, decimals) + suffix; }
 
 bool ValueField::commitText(const juce::String& typed)
 {
+    if (parser)
+    {
+        const auto parsed = parser(typed);
+        if (! parsed)
+            return false;
+        setValue(*parsed, true);
+        return true;
+    }
     auto cleaned = typed.trim();
     if (suffix.isNotEmpty() && cleaned.endsWithIgnoreCase(suffix))
         cleaned = cleaned.dropLastCharacters(suffix.length()).trim();
@@ -118,19 +131,56 @@ bool ValueField::commitText(const juce::String& typed)
     return true;
 }
 
-void ValueField::mouseDown(const juce::MouseEvent&) { dragStart = range.toNormalised(value); }
+void ValueField::mouseDown(const juce::MouseEvent&)
+{
+    if (! isEnabled())
+        return;
+    dragStart = range.toNormalised(value);
+    dragging = true;
+    moved = false;
+    if (onDragStart)
+        onDragStart();
+}
 
 void ValueField::mouseDrag(const juce::MouseEvent& e)
 {
-    setValue(range.fromNormalised(normalisedAfterDrag(dragStart, movedUp(e), dragPixelsForFullRange, e.mods.isShiftDown())), true);
+    if (! dragEnabled || ! isEnabled())
+        return;
+    if (e.getDistanceFromDragStart() > 2)
+        moved = true;
+    const auto raw = range.fromNormalised(normalisedAfterDrag(dragStart, movedUp(e), dragPixelsForFullRange, e.mods.isShiftDown()));
+    setValue(applyDetent(raw, detentValue, detentWidth), true);
+}
+
+void ValueField::mouseUp(const juce::MouseEvent& e)
+{
+    if (! dragging)
+        return;
+    dragging = false;
+    if (onDragEnd)
+        onDragEnd();
+    if ((clickToType || ! dragEnabled) && ! moved && e.getNumberOfClicks() == 1)
+        showEditor();
 }
 
 void ValueField::mouseDoubleClick(const juce::MouseEvent&)
 {
+    if (doubleClickResets)
+    {
+        setValue(range.defaultValue, true);
+        return;
+    }
+    showEditor();
+}
+
+void ValueField::showEditor()
+{
+    if (editor != nullptr)
+        return;
     editor = std::make_unique<juce::TextEditor>();
-    editor->setFont(Fonts::mono(15.0f, true));
-    editor->setJustification(juce::Justification::centred);
-    editor->setText(juce::String(value, decimals), false);
+    editor->setFont(Fonts::mono(fontHeight, true));
+    editor->setJustification(justification);
+    editor->setText(formatter ? text() : juce::String(value, decimals), false);
     editor->addListener(this);
     addAndMakeVisible(*editor);
     resized();
@@ -165,15 +215,18 @@ void ValueField::resized()
 void ValueField::paint(juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
-    g.setColour(theme::background);
-    g.fillRoundedRectangle(bounds, 6.0f);
-    g.setColour(theme::border);
-    g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+    if (drawBox)
+    {
+        g.setColour(theme::background);
+        g.fillRoundedRectangle(bounds, 6.0f);
+        g.setColour(theme::border);
+        g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+    }
     if (editor == nullptr)
     {
-        g.setColour(theme::text);
-        g.setFont(Fonts::mono(15.0f, true));
-        g.drawText(text(), getLocalBounds(), juce::Justification::centred);
+        g.setColour(isEnabled() ? theme::text : theme::muted.withAlpha(0.6f));
+        g.setFont(Fonts::mono(fontHeight, true));
+        g.drawText(text(), getLocalBounds(), justification);
     }
 }
 
@@ -188,11 +241,27 @@ void Knob::setValue(double v, bool notify)
         onChange(value);
 }
 
-void Knob::mouseDown(const juce::MouseEvent&) { dragStart = range.toNormalised(value); }
+void Knob::mouseDown(const juce::MouseEvent&)
+{
+    dragStart = range.toNormalised(value);
+    dragging = true;
+    if (onDragStart)
+        onDragStart();
+}
 
 void Knob::mouseDrag(const juce::MouseEvent& e)
 {
-    setValue(range.fromNormalised(normalisedAfterDrag(dragStart, movedUp(e), dragPixelsForFullRange, e.mods.isShiftDown())), true);
+    const auto raw = range.fromNormalised(normalisedAfterDrag(dragStart, movedUp(e), dragPixelsForFullRange, e.mods.isShiftDown()));
+    setValue(applyDetent(raw, detentValue, detentWidth), true);
+}
+
+void Knob::mouseUp(const juce::MouseEvent&)
+{
+    if (! dragging)
+        return;
+    dragging = false;
+    if (onDragEnd)
+        onDragEnd();
 }
 
 void Knob::mouseDoubleClick(const juce::MouseEvent&) { setValue(range.defaultValue, true); }

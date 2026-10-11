@@ -1,6 +1,10 @@
 #pragma once
 
+#include "commands/ArrangeCommands.h"
+
 #include <juce_events/juce_events.h>
+
+#include <optional>
 
 #include <vector>
 
@@ -13,6 +17,7 @@ struct JobInfo
     juce::String label;                  // "Importing 3 files"
     double progress = -1.0;              // 0..1, or negative when unknown
     juce::StringArray pendingNames;      // sounds still being prepared; the browser shows them as "importing" rows
+    std::optional<commands::PlacementTarget> placement; // files dropped on the timeline: where their clips will go
 };
 
 /**
@@ -22,7 +27,8 @@ struct JobInfo
 class JobRegistry : public juce::ChangeBroadcaster
 {
 public:
-    int add(const juce::String& label, const juce::StringArray& pendingNames);
+    int add(const juce::String& label, const juce::StringArray& pendingNames,
+            std::optional<commands::PlacementTarget> placement = std::nullopt);
     void setProgress(int id, double progress);
     /** One of the job's names is finished (ready, failed or skipped): its "importing" row goes away. */
     void nameDone(int id, const juce::String& name);

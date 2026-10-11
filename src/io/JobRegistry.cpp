@@ -10,12 +10,14 @@ JobInfo* JobRegistry::find(int id)
     return it != running.end() ? &*it : nullptr;
 }
 
-int JobRegistry::add(const juce::String& label, const juce::StringArray& pendingNames)
+int JobRegistry::add(const juce::String& label, const juce::StringArray& pendingNames,
+                     std::optional<commands::PlacementTarget> placement)
 {
     JobInfo job;
     job.id = nextId++;
     job.label = label;
     job.pendingNames = pendingNames;
+    job.placement = placement;
     running.push_back(job);
     sendChangeMessage();
     return job.id;

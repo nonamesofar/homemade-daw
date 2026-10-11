@@ -8,7 +8,7 @@ Name.sdaw/
   audio/
     originals/              exact copies of the files you imported
     <name>-<hash>.wav       the decoded working copies the app plays (32-bit float WAV)
-  cache/                    disposable: waveform pictures and other generated files
+  cache/                    disposable: waveform pictures, reversed-clip renders and other generated files
 ```
 
 The names of copied files are a cleaned-up form of the original name plus the first 8 characters of a content hash, for example `drums-loop-120-1a2b3c4d.wav`. Your own files are never changed: the app only reads them and keeps its own copy.
@@ -28,10 +28,23 @@ The app starts with an untitled project, so you can drop a file in at once. Unti
 - **Open** (Ctrl+O) takes a `.sdaw` folder. A folder without a valid project file is refused with a message and the current project stays open. A project made by a newer version of Sampler is refused too, and its file is not touched.
 - The undo history is not saved in the project.
 
+## What the project stores (since the arrangement)
+
+Saving keeps the whole arrangement inside `project.tracktionedit`:
+
+- **Tracks** in order: name, colour, volume, pan, mute, solo. A project always has at least one audio track; a project saved before the arrangement existed opens with one empty track "Audio 1" and its file is not rewritten until you save.
+- **Clips**: the track, start (bars and beats), length, the part of the sound they play, gain, reverse, and which sound they use. A clip refers to the sound's working copy in `audio/` by a path relative to the project folder, so the project can be moved. If that file is missing when the project opens, the clip is kept, drawn as missing and silent, and a message names the file.
+- **Tempo, time signature, loop range and loop on/off, metronome on/off** and the **snap** value (the snap value lives in `<SAMPLER><UI snap="1 bar"/>`).
+- The master volume.
+
+Not saved: the playhead, selection, zoom and scroll, and the undo history. Play, stop, moving the playhead, looping on/off, the metronome and the snap value are not edits: they do not mark the project as changed (the window title shows `*` only after an undoable edit, an undo or a redo that moved the history away from the last save).
+
 ## The cache folder
 
-`cache/` holds only things the app can make again (waveform pictures now; stretched renders and similar later). You can delete it while the app is closed; the next time you open the project it fills up again and nothing is lost.
+`cache/` holds only things the app can make again (waveform pictures and the renders of reversed clips now; stretched renders and similar later). You can delete it while the app is closed; the next time you open the project it fills up again and nothing is lost.
 
 ## For developers
 
 The `<SAMPLER schemaVersion="1">` section has one `SOURCE` node per imported sound (id, name, relative paths of the original and the decoded copy, content hash, sample rate, channels, frames, category). All paths are relative to the bundle. A newer `schemaVersion` than the app knows is refused; older ones are upgraded in memory by the steps in `src/model/Migrations.cpp` (none yet).
+
+Arrangement data is stored by Tracktion (tracks, clips, tempo, transport) with our extras as `sampler_*` properties on its nodes: a clip's `sampler_sourceId` names its `SOURCE`. Everything added in M2 is optional, so the schema version stays 1. Dirty state comes from the undo history (`CommandService::historyToken`), not from watching the file.

@@ -1,0 +1,465 @@
+#include "ArrangeCommands.h"
+
+#include <algorithm>
+#include <cmath>
+#include <map>
+#include <set>
+
+namespace sampler::commands
+{
+namespace
+{
+engine::Arrangement& arrangementOf(ModelContext& context)
+{
+    jassert(context.arrangement != nullptr); // arrangement commands need the engine-backed context
+    return *context.arrangement;
+}
+
+/** The clip spec of a sound of the project (empty source id if it is not there). */
+engine::ClipSpec specForSource(const ModelContext& context, const juce::String& sourceId)
+{
+    engine::ClipSpec spec;
+    const auto source = model::SamplerState(context.sampler).findSourceById(sourceId);
+    if (! source.isValid())
+        return spec;
+    spec.sourceId = source.id();
+    spec.name = source.name();
+    spec.file = context.bundleDir.getChildFile(source.decoded());
+    spec.lengthSeconds = source.lengthSeconds();
+    return spec;
+}
+
+/** Performs the plan's primitive edits; returns the ids of created clips by their tag (pieces have none). */
+std::map<int, juce::String> execute(ModelContext& context, const Plan& plan, const std::vector<engine::ClipSpec>& specs = {})
+{
+    auto& a = arrangementOf(context);
+    const auto time = timeMapOf(a);
+    const auto tracks = a.tracks();
+    std::map<int, juce::String> tagged;
+    const auto trackId = [&tracks](int index) { return tracks[static_cast<size_t>(juce::jlimit(0, static_cast<int>(tracks.size()) - 1, index))].id; };
+
+    // New clips first: a piece may copy a clip that this plan shortens or removes.
+    for (const auto& s : plan.created)
+    {
+        const auto seconds = time.secondsBetween(s.start, s.end());
+        juce::String id;
+        if (s.copyOf.isNotEmpty())
+            id = a.copyClip(s.copyOf, trackId(s.track), s.start, seconds, s.offset);
+        else if (juce::isPositiveAndBelow(s.specIndex, static_cast<int>(specs.size())))
+        {
+            auto spec = specs[static_cast<size_t>(s.specIndex)];
+            spec.start = s.start;
+            spec.lengthSeconds = seconds;
+            spec.offsetSeconds = s.offset;
+            id = a.createClip(trackId(s.track), spec);
+        }
+        if (s.tag >= 0 && id.isNotEmpty())
+            tagged[s.tag] = id;
+    }
+    for (const auto& s : plan.changed)
+        a.setClipBounds(s.id, trackId(s.track), s.start, time.secondsBetween(s.start, s.end()), s.offset);
+    for (const auto& id : plan.removed)
+        a.removeClip(id);
+    return tagged;
+}
+
+std::optional<Span> findSpan(const std::vector<Span>& spans, const juce::String& id)
+{
+    for (const auto& s : spans)
+        if (s.id == id)
+            return s;
+    return std::nullopt;
+}
+
+std::vector<juce::String> values(const std::map<int, juce::String>& tagged)
+{
+    std::vector<juce::String> ids;
+    for (const auto& [tag, id] : tagged)
+        ids.push_back(id);
+    return ids;
+}
+
+/** Clip starts (beats) and lengths (seconds) and the loop range, to put back after a tempo or time signature change. */
+struct Snapshot
+{
+    std::vector<engine::ClipInfo> clips;
+    engine::LoopRange loop;
+
+    explicit Snapshot(const engine::Arrangement& a) : clips(a.clips()), loop(a.loopRange()) {}
+    Snapshot(std::vector<engine::ClipInfo> c, engine::LoopRange l) : clips(std::move(c)), loop(l) {}
+
+    void restore(engine::Arrangement& a) const
+    {
+        for (const auto& before : clips)
+            if (const auto now = a.clip(before.id))
+                if (std::abs(now->start - before.start) > EditPlanner::epsilon
+                    || std::abs(now->lengthSeconds - before.lengthSeconds) > 1.0e-6)
+                    a.setClipBounds(before.id, before.trackId, before.start, before.lengthSeconds, before.offsetSeconds);
+        if (! loop.isEmpty())
+        {
+            const auto now = a.loopRange();
+            if (std::abs(now.start - loop.start) > EditPlanner::epsilon || std::abs(now.end - loop.end) > EditPlanner::epsilon)
+                a.setLoopRange(loop);
+        }
+    }
+};
+} // namespace
+
+//==============================================================================
+std::vector<Span> spansOf(const engine::Arrangement& a)
+{
+    std::map<juce::String, int> indexOf;
+    const auto tracks = a.tracks();
+    for (size_t i = 0; i < tracks.size(); ++i)
+        indexOf[tracks[i].id] = static_cast<int>(i);
+    std::vector<Span> spans;
+    for (const auto& clip : a.clips())
+    {
+        Span s;
+        s.id = clip.id;
+        s.track = indexOf[clip.trackId];
+        s.start = clip.start;
+        s.length = clip.length;
+        s.offset = clip.offsetSeconds;
+        spans.push_back(s);
+    }
+    return spans;
+}
+
+TimeMap timeMapOf(const engine::Arrangement& a)
+{
+    return {[&a](double beats) { return a.beatsToSeconds(beats); }, [&a](double seconds) { return a.secondsToBeats(seconds); }};
+}
+
+juce::String nextTrackName(const std::vector<engine::TrackInfo>& tracks)
+{
+    std::set<int> used;
+    for (const auto& t : tracks)
+        if (t.name.startsWith("Audio ") && t.name.substring(6).containsOnly("0123456789") && t.name.length() > 6)
+            used.insert(t.name.substring(6).getIntValue());
+    int n = 1;
+    while (used.count(n))
+        ++n;
+    return "Audio " + juce::String(n);
+}
+
+juce::Colour nextTrackColour(const std::vector<engine::TrackInfo>& tracks)
+{
+    for (int i = 0; i < engine::trackPaletteSize; ++i)
+    {
+        const auto colour = engine::trackPaletteColour(i);
+        if (std::none_of(tracks.begin(), tracks.end(), [colour](const engine::TrackInfo& t) { return t.colour == colour; }))
+            return colour;
+    }
+    return engine::trackPaletteColour(static_cast<int>(tracks.size()));
+}
+
+juce::String clipCountName(const juce::String& verb, size_t count)
+{
+    return count == 1 ? verb + " clip" : verb + " " + juce::String(static_cast<int>(count)) + " clips";
+}
+
+//==============================================================================
+std::vector<juce::String> CreateClipsFromSources::place(ModelContext& context, const std::vector<juce::String>& sourceIds,
+                                                        PlacementTarget target)
+{
+    auto& a = arrangementOf(context);
+    std::vector<engine::ClipSpec> specs;
+    for (const auto& id : sourceIds)
+        if (auto spec = specForSource(context, id); spec.sourceId.isNotEmpty() && spec.lengthSeconds > 0.0)
+            specs.push_back(spec);
+    if (specs.empty())
+        return {};
+
+    int track = target.trackIndex;
+    if (target.trackId.isNotEmpty() && ! target.newTrack)
+    {
+        track = a.trackIndex(target.trackId);
+        target.newTrack = track < 0; // the track is gone: the clips get a new one
+    }
+    if (target.newTrack || a.numTracks() == 0)
+    {
+        const auto tracks = a.tracks();
+        a.addTrack(static_cast<int>(tracks.size()), nextTrackName(tracks), nextTrackColour(tracks));
+        track = a.numTracks() - 1;
+    }
+    track = juce::jlimit(0, a.numTracks() - 1, track);
+
+    const auto time = timeMapOf(a);
+    std::vector<Span> placed;
+    auto beat = std::max(0.0, target.beat);
+    for (size_t i = 0; i < specs.size(); ++i)
+    {
+        Span s;
+        s.specIndex = static_cast<int>(i);
+        s.tag = static_cast<int>(i);
+        s.track = track;
+        s.start = beat;
+        s.length = time.beatAfter(beat, specs[i].lengthSeconds) - beat;
+        placed.push_back(s);
+        beat = s.end();
+    }
+    return values(execute(context, EditPlanner::place(spansOf(a), placed, time), specs));
+}
+
+void CreateClipsFromSources::perform(ModelContext& context) { results = place(context, sources, where); }
+
+juce::String ImportAndPlace::name() const
+{
+    if (items.empty())
+        return clipCountName("Add", toPlace.size());
+    if (items.size() == 1)
+    {
+        const auto& origin = items.front().originalPath;
+        const auto fileName = juce::File::isAbsolutePath(origin) ? juce::File(origin).getFileName() : juce::String();
+        return "Import " + (fileName.isNotEmpty() ? fileName : items.front().name);
+    }
+    return "Import " + juce::String(static_cast<int>(items.size())) + " files";
+}
+
+void ImportAndPlace::perform(ModelContext& context)
+{
+    model::SamplerState state(context.sampler);
+    for (const auto& item : items)
+        state.addSource(model::Source::create(item), &context.undo);
+    results = CreateClipsFromSources::place(context, toPlace, where);
+}
+
+void MoveClips::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto spans = spansOf(a);
+    std::vector<Span> placed;
+    for (size_t i = 0; i < moves.size(); ++i)
+        if (auto s = findSpan(spans, moves[i].clipId))
+        {
+            s->track = juce::jlimit(0, a.numTracks() - 1, moves[i].trackIndex);
+            s->start = std::max(0.0, moves[i].start);
+            s->tag = static_cast<int>(i);
+            placed.push_back(*s);
+            results.push_back(s->id);
+        }
+    execute(context, EditPlanner::place(spans, placed, timeMapOf(a)));
+}
+
+void TrimClip::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto spans = spansOf(a);
+    const auto span = findSpan(spans, clipId);
+    const auto info = a.clip(clipId);
+    if (! span || ! info)
+        return;
+    const auto time = timeMapOf(a);
+    const auto shortest = std::max(minLength, time.beatAfter(span->start, engine::Arrangement::minClipSeconds) - span->start);
+    auto trimmed = EditPlanner::withStart(*span, EditPlanner::clampTrimStart(*span, start, shortest, time), time);
+    trimmed.length = EditPlanner::clampTrimEnd(trimmed, end, info->sourceSeconds, shortest, time) - trimmed.start;
+    trimmed.tag = 0;
+    execute(context, EditPlanner::place(spans, {trimmed}, time));
+    results = {clipId};
+}
+
+void SplitClips::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto plan = EditPlanner::split(spansOf(a), clipIds, beat, timeMapOf(a));
+    auto created = plan.created;
+    for (size_t i = 0; i < created.size(); ++i)
+        created[i].tag = static_cast<int>(i);
+    Plan tagged = plan;
+    tagged.created = created;
+    for (const auto& s : plan.changed)
+        results.push_back(s.id);
+    for (const auto& id : values(execute(context, tagged)))
+        results.push_back(id);
+}
+
+void DuplicateClips::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto spans = spansOf(a);
+    std::vector<Span> chosen;
+    for (const auto& id : clipIds)
+        if (auto s = findSpan(spans, id))
+            chosen.push_back(*s);
+    if (chosen.empty())
+        return;
+    double first = chosen.front().start, last = chosen.front().end();
+    for (const auto& s : chosen)
+    {
+        first = std::min(first, s.start);
+        last = std::max(last, s.end());
+    }
+    std::vector<Span> placed;
+    for (size_t i = 0; i < chosen.size(); ++i)
+    {
+        Span copy = chosen[i];
+        copy.copyOf = copy.id;
+        copy.id = {};
+        copy.start += last - first;
+        copy.tag = static_cast<int>(i);
+        placed.push_back(copy);
+    }
+    results = values(execute(context, EditPlanner::place(spans, placed, timeMapOf(a))));
+}
+
+void DeleteClips::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    for (const auto& id : clipIds)
+        a.removeClip(id);
+}
+
+void PasteClips::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    if (a.numTracks() == 0)
+        return;
+    const auto time = timeMapOf(a);
+    std::vector<engine::ClipSpec> specs;
+    std::vector<Span> placed;
+    for (const auto& record : records)
+    {
+        auto spec = specForSource(context, record.sourceId);
+        if (spec.sourceId.isEmpty())
+            continue; // the sound is gone from the project
+        spec.name = record.name;
+        spec.gainDb = record.gainDb;
+        spec.reversed = record.reversed;
+        Span s;
+        s.specIndex = static_cast<int>(specs.size());
+        s.tag = s.specIndex;
+        s.track = juce::jlimit(0, a.numTracks() - 1, track + record.trackOffset);
+        s.start = std::max(0.0, beat + record.startOffset);
+        s.length = time.beatAfter(s.start, record.lengthSeconds) - s.start;
+        s.offset = record.offsetSeconds;
+        specs.push_back(spec);
+        placed.push_back(s);
+    }
+    results = values(execute(context, EditPlanner::place(spansOf(a), placed, time), specs));
+}
+
+void SetClipGain::perform(ModelContext& context) { arrangementOf(context).setClipGainDb(clipId, gainDb); }
+
+void SetClipStart::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto spans = spansOf(a);
+    auto span = findSpan(spans, clipId);
+    if (! span)
+        return;
+    span->start = std::max(0.0, beat);
+    span->tag = 0;
+    execute(context, EditPlanner::place(spans, {*span}, timeMapOf(a)));
+    results = {clipId};
+}
+
+void SetClipReversed::perform(ModelContext& context) { arrangementOf(context).setClipReversed(clipId, reversed); }
+
+//==============================================================================
+void AddTrack::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto tracks = a.tracks();
+    const auto afterIndex = after.isEmpty() ? -1 : a.trackIndex(after);
+    const auto index = afterIndex < 0 ? static_cast<int>(tracks.size()) : afterIndex + 1;
+    if (const auto id = a.addTrack(index, nextTrackName(tracks), nextTrackColour(tracks)); id.isNotEmpty())
+        results = {id};
+}
+
+void DeleteTracks::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    for (const auto& id : trackIds)
+        a.removeTrack(id);
+}
+
+void ReorderTrack::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    if (a.trackIndex(trackId) != newIndex)
+        a.moveTrack(trackId, newIndex);
+}
+
+void RenameTrack::perform(ModelContext& context)
+{
+    const auto trimmed = text.trim();
+    if (trimmed.isNotEmpty())
+        arrangementOf(context).setTrackName(trackId, trimmed);
+}
+
+void SetTrackColour::perform(ModelContext& context) { arrangementOf(context).setTrackColour(trackId, colour); }
+
+juce::String SetTrackParam::name() const
+{
+    switch (control)
+    {
+        case Control::volume: return "Set volume";
+        case Control::pan: return "Set pan";
+        case Control::mute: return "Mute";
+        case Control::solo:
+        case Control::exclusiveSolo: return "Solo";
+    }
+    return {};
+}
+
+juce::String SetTrackParam::coalesceKey() const
+{
+    if (control == Control::exclusiveSolo)
+        return {};
+    return (trackId.isEmpty() ? juce::String("master") : trackId) + ":" + juce::String(static_cast<int>(control));
+}
+
+void SetTrackParam::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    if (trackId.isEmpty())
+    {
+        if (control == Control::volume)
+            a.setMasterVolumeDb(value);
+        return;
+    }
+    switch (control)
+    {
+        case Control::volume: a.setTrackVolumeDb(trackId, value); break;
+        case Control::pan: a.setTrackPan(trackId, value); break;
+        case Control::mute: a.setTrackMute(trackId, value > 0.5); break;
+        case Control::solo: a.setTrackSolo(trackId, value > 0.5); break;
+        case Control::exclusiveSolo:
+            for (const auto& t : a.tracks())
+                a.setTrackSolo(t.id, t.id == trackId);
+            break;
+    }
+}
+
+void SetLoop::perform(ModelContext& context)
+{
+    auto r = range;
+    if (r.end < r.start)
+        std::swap(r.start, r.end);
+    r.start = std::max(0.0, r.start);
+    arrangementOf(context).setLoopRange(r);
+}
+
+void SetTempo::perform(ModelContext& context)
+{
+    if (! std::isfinite(bpm))
+        return;
+    auto& a = arrangementOf(context);
+    if (! baseline)
+        baseline = a.clips(); // before any change of this command; later updates of a drag restore from it
+    const Snapshot before(*baseline, a.loopRange());
+    a.setTempo(bpm);
+    before.restore(a);
+    execute(context, EditPlanner::shortenOverlaps(spansOf(a)));
+}
+
+void SetTimeSig::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const Snapshot before(a);
+    a.setTimeSig(juce::jlimit(1, 32, numerator), denominator == 2 || denominator == 8 || denominator == 16 ? denominator : 4);
+    before.restore(a);
+    execute(context, EditPlanner::shortenOverlaps(spansOf(a)));
+}
+} // namespace sampler::commands

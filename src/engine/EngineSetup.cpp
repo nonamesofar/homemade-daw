@@ -69,14 +69,19 @@ bool replaceByRename(const juce::File& from, const juce::File& to)
 class SamplerEngineBehaviour : public te::EngineBehaviour
 {
 public:
+    explicit SamplerEngineBehaviour(bool noDevice) : headless(noDevice) {}
     bool shouldOpenAudioInputByDefault() override { return false; }
+    bool autoInitialiseDeviceManager() override { return ! headless; }
+
+private:
+    bool headless;
 };
 } // namespace
 
-std::unique_ptr<te::Engine> makeEngine(const juce::String& appName)
+std::unique_ptr<te::Engine> makeEngine(const juce::String& appName, bool headless)
 {
     return std::make_unique<te::Engine>(appName, std::make_unique<SamplerUIBehaviour>(),
-                                        std::make_unique<SamplerEngineBehaviour>());
+                                        std::make_unique<SamplerEngineBehaviour>(headless));
 }
 
 bool saveEditAtomically(te::Edit& edit, const std::function<void(const juce::File&)>& beforeCommit)

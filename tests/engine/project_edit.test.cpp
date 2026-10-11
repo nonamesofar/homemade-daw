@@ -5,6 +5,9 @@
 #include <juce_events/juce_events.h>
 
 #include "TestAudio.h"
+#include "commands/CommandService.h"
+#include "commands/Commands.h"
+#include "engine/Arrangement.h"
 #include "engine/EngineHost.h"
 #include "engine/ProjectEdit.h"
 #include "model/SamplerState.h"
@@ -45,7 +48,7 @@ TEST_CASE("a new untitled project has the bundle folders and a SAMPLER section a
     REQUIRE(state.isValid());
     CHECK(state.schemaVersion() == 1);
     CHECK(state.numSources() == 0);
-    CHECK_FALSE(project->isDirty());
+    CHECK_FALSE(project->undoManager().canUndo()); // nothing to save yet (dirty state comes from the history, design D-4)
 
     // The section is in the file on disk, not only in memory.
     const auto xml = juce::XmlDocument::parse(project->editFile());
@@ -78,21 +81,33 @@ TEST_CASE("edits to the SAMPLER section mark the project dirty and save clears i
     auto project = sampler::ProjectEdit::createUntitled(host, root, error);
     REQUIRE(project != nullptr);
 
+    // Dirty = the history token differs from the one recorded at the last save (design D-4).
+    sampler::commands::CommandService commands(project->samplerState(), project->undoManager(), project->bundleDir(),
+                                               &project->arrangement());
+    auto saved = commands.historyToken();
+    const auto dirty = [&] { return commands.historyToken() != saved; };
+
     sampler::model::SamplerState state(project->samplerState());
     sampler::model::SourceData data;
     data.id = "src_00000001";
     data.hash = "sha256:00000001";
-    project->undoManager().beginNewTransaction("Add");
-    REQUIRE(state.addSource(sampler::model::Source::create(data), &project->undoManager()));
-    CHECK(project->isDirty());
+    data.original = "audio/originals/a.wav";
+    data.decoded = "audio/a.wav";
+    commands.invariantChecksEnabled = false; // the files are not on disk here
+    commands.apply(std::make_unique<sampler::commands::AddSources>(std::vector<sampler::model::SourceData>{data}));
+    REQUIRE(state.numSources() == 1);
+    CHECK(dirty());
 
     REQUIRE(project->save());
-    CHECK_FALSE(project->isDirty());
-    CHECK(project->undoManager().canUndo()); // saving does not touch the history
+    saved = commands.historyToken();
+    CHECK_FALSE(dirty());
+    CHECK(commands.canUndo()); // saving does not touch the history
 
-    project->undoManager().undo();
-    CHECK(project->isDirty()); // undo after save is an unsaved change
+    commands.undo();
+    CHECK(dirty()); // undo after save is an unsaved change
     CHECK(state.numSources() == 0);
+    commands.redo();
+    CHECK_FALSE(dirty()); // back where it was saved
 
     // The saved file holds the source that was in the section when it was saved.
     const auto xml = juce::XmlDocument::parse(project->editFile());

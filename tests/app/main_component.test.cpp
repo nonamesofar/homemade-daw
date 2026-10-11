@@ -187,7 +187,7 @@ TEST_CASE("Help > Widget gallery opens the gallery window", "[app][gui]")
     sampler::app::AppController controller(testOptions("app-gallery"));
     sampler::app::MainComponent main(controller);
 
-    CHECK(main.getMenuBarNames() == juce::StringArray{"File", "Edit", "Help"});
+    CHECK(main.getMenuBarNames() == juce::StringArray{"File", "Edit", "Track", "Help"});
     CHECK_FALSE(main.isWidgetGalleryOpen());
     main.commandManager().invokeDirectly(sampler::app::widgetGalleryCommand, false);
     CHECK(main.isWidgetGalleryOpen());

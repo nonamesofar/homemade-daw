@@ -1,6 +1,7 @@
 #pragma once
 
 #include "JobRegistry.h"
+#include "commands/ArrangeCommands.h"
 #include "commands/CommandService.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -43,8 +44,12 @@ public:
     /** Cancels a running batch: the worker stops within a block and removes the files it wrote. */
     ~ImportService();
 
-    /** Starts importing; returns at once. Message thread only. */
-    void importFiles(const juce::Array<juce::File>& files);
+    /**
+        Starts importing; returns at once. Message thread only. With a placement (files dropped on the timeline) the
+        batch ends with one ImportAndPlace step instead: the sounds and their clips, one after another from the target
+        beat (a file already in the project is placed from its existing sound).
+    */
+    void importFiles(const juce::Array<juce::File>& files, std::optional<commands::PlacementTarget> placement = std::nullopt);
 
     /** True while any batch is running or waiting for its result to be recorded. */
     bool isBusy() const { return pendingBatches > 0; }
@@ -60,7 +65,8 @@ public:
 
 private:
     struct Prepared;
-    void finishBatch(int jobId, std::vector<Prepared> ready, std::vector<ImportMessage> messages);
+    void finishBatch(int jobId, std::vector<Prepared> ready, std::vector<ImportMessage> messages,
+                     std::vector<juce::String> hashesInOrder, std::optional<commands::PlacementTarget> placement);
 
     juce::ValueTree sampler;
     commands::CommandService& commands;
