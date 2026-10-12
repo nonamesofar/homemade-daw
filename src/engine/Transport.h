@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <functional>
 #include <memory>
 
 namespace tracktion { inline namespace engine
@@ -43,7 +44,15 @@ public:
 
     /** The playhead in beats (the audible position while playing). */
     double positionBeats() const;
-    void locateBeats(double beats);
+    /** Moves the playhead. False (nothing moved, `onLocateRefused` called) while the locate lock is on. */
+    bool locateBeats(double beats);
+    /**
+        While a recording runs the playhead may not be moved by the user (the take would keep appending as if the
+        song had played on); loop wraps are the engine's own and are not affected.
+    */
+    void setLocateLocked(bool locked) { locateLocked = locked; }
+    bool isLocateLocked() const { return locateLocked; }
+    std::function<void()> onLocateRefused;
 
     bool isLooping() const;
     void setLooping(bool);
@@ -55,6 +64,7 @@ public:
     void loopRangeChanged();
 
 private:
+    bool locateLocked = false;
     struct Impl;
     std::unique_ptr<Impl> impl;
 };

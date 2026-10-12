@@ -49,6 +49,7 @@ MainComponent::MainComponent(AppController& appController) : controller(appContr
         toast.show(text, isError ? ui::Toast::Kind::error : ui::Toast::Kind::info);
     };
     controller.onSelectSource = [this](const juce::String& id) { browserPanel.selectRowById(id); };
+    controller.onTakesAdded = [this](const std::vector<juce::String>& ids) { selectionModel.setClips(ids); };
     controller.onProjectClosing = [this] { dropProjectViews(); };
     controller.onProjectAttached = [this] { buildProjectViews(); };
     controller.addChangeListener(this);
@@ -74,6 +75,7 @@ MainComponent::~MainComponent()
     controller.removeChangeListener(this);
     controller.onToast = nullptr;
     controller.onSelectSource = nullptr;
+    controller.onTakesAdded = nullptr;
     controller.onProjectClosing = nullptr;
     controller.onProjectAttached = nullptr;
     controller.askToSave = nullptr;
@@ -99,7 +101,10 @@ void MainComponent::buildProjectViews()
                                  controller.setSnapName(ui::Snap::name(v));
                                  if (arrangementView != nullptr)
                                      arrangementView->viewChanged();
-                             }};
+                             },
+                             [this] { controller.recording().toggleRecord(); },
+                             [this] { return controller.recording().isRecording(); },
+                             [this] { controller.recording().transportStopped(); }};
     headerBar = std::make_unique<ui::HeaderBar>(header);
     addAndMakeVisible(*headerBar);
 
@@ -120,7 +125,11 @@ void MainComponent::buildProjectViews()
                                        if (job.placement.has_value())
                                            list.push_back({*job.placement, std::max(1, job.pendingNames.size())});
                                    return list;
-                               }};
+                               },
+                               &controller.recording().armState(),
+                               [] { return platform::listPlaybackDevices(); },
+                               [this] { return controller.recording().liveTakes(); },
+                               [this] { return controller.recording().isRecording(); }};
     arrangementView = std::make_unique<ui::ArrangementView>(context);
     addAndMakeVisible(*arrangementView);
 
@@ -437,6 +446,11 @@ void MainComponent::paste()
 void MainComponent::undoOrRedo(bool redo)
 {
     auto& service = controller.commandService();
+    if (service.isRecordingLocked())
+    {
+        redo ? service.redo() : service.undo(); // refused with a message
+        return;
+    }
     if (redo ? ! service.canRedo() : ! service.canUndo())
         return;
     const auto before = clipIdSet(controller.project().arrangement());
@@ -488,6 +502,8 @@ juce::PopupMenu MainComponent::getMenuForIndex(int index, const juce::String&)
     {
         menu.addCommandItem(&commands, newTrackCommand);
         menu.addCommandItem(&commands, deleteTrackCommand);
+        menu.addSeparator();
+        menu.addCommandItem(&commands, recordCommand);
     }
     else
     {
@@ -504,7 +520,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& ids)
                   widgetGalleryCommand, cutCommand, copyCommand, pasteCommand, duplicateCommand, splitCommand, deleteCommand,
                   selectAllCommand, newTrackCommand, deleteTrackCommand, playStopCommand, playFromSelectionCommand,
                   returnToStartCommand, loopToggleCommand, loopToSelectionCommand, muteCommand, soloCommand,
-                  zoomToSelectionCommand, zoomToSongCommand});
+                  zoomToSelectionCommand, zoomToSongCommand, recordCommand});
 }
 
 void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandInfo& info)
@@ -602,6 +618,11 @@ void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandI
         case deleteTrackCommand:
             info.setInfo("Delete Track", "Deletes the selected track with its clips", "Track", 0);
             info.setActive(project && ! gesture && controller.project().arrangement().track(selectionModel.track()).has_value());
+            break;
+        case recordCommand:
+            info.setInfo("Record", "Records onto the armed tracks, or ends the recording", "Transport", 0);
+            info.setActive(project && ! gesture);
+            info.addDefaultKeypress('r', mod);
             break;
         case playStopCommand:
             info.setInfo("Play / Stop", "Starts or stops playback", "Transport", 0);
@@ -719,6 +740,7 @@ bool MainComponent::perform(const InvocationInfo& info)
                 selectionModel.setTrack(tracks.empty() ? juce::String() : tracks.front().id);
             }
             return true;
+        case recordCommand: controller.recording().toggleRecord(); return true;
         case playStopCommand:
             if (headerBar != nullptr)
                 headerBar->togglePlay();
@@ -728,8 +750,8 @@ bool MainComponent::perform(const InvocationInfo& info)
             const auto clips = selectedClips();
             const auto from = ui::TransportLogic::playFromSelection(
                 clips.empty() ? std::nullopt : std::optional<double>(clips.front().start), project.transport().positionBeats());
-            project.transport().locateBeats(from);
-            project.transport().play();
+            if (project.transport().locateBeats(from))
+                project.transport().play();
             return true;
         }
         case returnToStartCommand:

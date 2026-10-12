@@ -370,8 +370,81 @@ void AddTrack::perform(ModelContext& context)
 void DeleteTracks::perform(ModelContext& context)
 {
     auto& a = arrangementOf(context);
+    // Tracks that recorded a deleted track go back to System audio, in the same step.
+    for (const auto& track : a.tracks())
+        if (std::find(trackIds.begin(), trackIds.end(), track.id) == trackIds.end()
+            && track.input.startsWith("track:") && std::find(trackIds.begin(), trackIds.end(), track.input.fromFirstOccurrenceOf(":", false, false)) != trackIds.end())
+            a.setTrackInput(track.id, "system:default");
     for (const auto& id : trackIds)
         a.removeTrack(id);
+}
+
+void SetTrackInput::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    if (a.trackIndex(trackId) < 0 || input == "track:" + trackId)
+        return;
+    if (input.startsWith("track:") && a.trackIndex(input.fromFirstOccurrenceOf(":", false, false)) < 0)
+        return;
+    a.setTrackInput(trackId, input);
+}
+
+void AddTakes::perform(ModelContext& context)
+{
+    model::SamplerState state(context.sampler);
+    auto& a = arrangementOf(context);
+    std::map<juce::String, juce::String> sourceOfFile; // tracks on one device share one file and one sound
+    skipped.clear();
+    for (size_t index = 0; index < takes.size(); ++index)
+    {
+        const auto& take = takes[index];
+        if (a.trackIndex(take.trackId) < 0 || take.frames <= 0 || take.sampleRate <= 0.0)
+        {
+            skipped.push_back(index);
+            continue;
+        }
+        PlacementTarget target;
+        target.trackId = take.trackId;
+        target.beat = take.startBeat;
+        if (const auto known = sourceOfFile.find(take.relativePath); known != sourceOfFile.end())
+        {
+            const auto ids = CreateClipsFromSources::place(context, {known->second}, target);
+            if (ids.empty())
+                skipped.push_back(index); // no clip came of it: the take is not added
+            for (const auto& id : ids)
+                results.push_back(id);
+            continue;
+        }
+        model::SourceData data;
+        data.hash = "rec:" + juce::File(take.relativePath).getFileNameWithoutExtension(); // the whole name: it is unique per take
+        data.id = state.makeSourceId(data.hash);
+        data.name = take.name;
+        data.original = data.decoded = take.relativePath;
+        data.originalPath = {};
+        data.sampleRate = take.sampleRate;
+        data.channels = take.channels;
+        data.frames = take.frames;
+        data.category = model::Category::recording;
+        data.recordedFrom = take.recordedFrom;
+        data.recordedAt = take.recordedAt;
+        if (! state.addSource(model::Source::create(data), &context.undo))
+        {
+            skipped.push_back(index);
+            continue;
+        }
+        const auto ids = CreateClipsFromSources::place(context, {data.id}, target);
+        if (ids.empty())
+        {
+            // No clip came of it: no sound is left behind without a clip.
+            if (const auto added = state.findSourceById(data.id); added.isValid())
+                added.node().getParent().removeChild(added.node(), &context.undo);
+            skipped.push_back(index);
+            continue;
+        }
+        sourceOfFile[take.relativePath] = data.id;
+        for (const auto& id : ids)
+            results.push_back(id);
+    }
 }
 
 void ReorderTrack::perform(ModelContext& context)

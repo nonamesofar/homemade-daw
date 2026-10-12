@@ -44,7 +44,8 @@ enum CommandIds : int
     muteCommand,
     soloCommand,
     zoomToSelectionCommand,
-    zoomToSongCommand
+    zoomToSongCommand,
+    recordCommand
 };
 
 /**

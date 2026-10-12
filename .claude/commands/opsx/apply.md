@@ -21,6 +21,13 @@ Otherwise, with no root, what happens next depends on how this workflow was reac
 
 In both branches, never create the root as a side effect: do not run `openspec init` until the user asks for it, do not hand-create `openspec/` files, and do not let a command create it.
 
+**Model policy (Sonnet or below):** Implementation runs on Sonnet or a smaller model only. Before step 1, check the model you are running as (stated in your system prompt).
+- **Sonnet, Haiku or older/smaller:** continue normally.
+- **Opus, Fable, or anything above Sonnet:** ask the user once, with AskUserQuestion: "This session runs on <model>. /opsx:apply is meant for Sonnet or below. Are you sure you want to use <model>?" Options: "No, use Sonnet (Recommended)" and "Yes, use <model>". Then:
+  - "Yes": continue on this model.
+  - "No", or **no answer within 5 minutes** (the user is away), or the question cannot be shown: continue with Sonnet. Do the implementation (steps 3 to 6) through the Agent tool with `model: "sonnet"` and `run_in_background: false`, giving the subagent the change name, the context file paths and these steps. Do not do the code edits yourself on the higher model.
+- Ask only once per invocation. Never wait longer than 5 minutes for the answer.
+
 **Input**: Optionally specify a change name (e.g., `/opsx:apply add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**

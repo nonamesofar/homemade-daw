@@ -84,6 +84,7 @@ public:
 private:
     int getNumRows() override { return static_cast<int>(currentRows.size()); }
     void paintListBoxItem(int row, juce::Graphics&, int width, int height, bool selected) override;
+    juce::String getTooltipForRow(int row) override;
     void listBoxItemClicked(int row, const juce::MouseEvent&) override;
     /** Dragging a ready sound gives "sample:<id>" (dropped on the timeline it becomes a clip). */
     juce::var getDragSourceDescription(const juce::SparseSet<int>&) override;

@@ -13,9 +13,12 @@ bool KeyboardRouter::isGlobalFileShortcut(const juce::KeyPress& key)
 
 bool KeyboardRouter::isTransportKey(const juce::KeyPress& key)
 {
-    if (key.getModifiers().isCommandDown() || key.getModifiers().isAltDown())
+    if (key.getModifiers().isAltDown())
         return false;
     const auto code = key.getKeyCode();
+    if (key.getModifiers().isCommandDown())
+        return code == 'R' || code == 'r'; // Mod+R: Record
+
     return code == juce::KeyPress::spaceKey || code == juce::KeyPress::homeKey || code == juce::KeyPress::returnKey
            || code == 'L' || code == 'l';
 }

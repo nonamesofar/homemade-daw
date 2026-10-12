@@ -4,7 +4,7 @@ Source: `technical design/technical-design.md` §15 (the design doc stays author
 Platform: Windows only for now (TODO-MAC). The MVP is M0 to M4.
 
 **Current milestone:** M2b Capture (M2 accepted by the PO on 2026-10-11)
-**Last updated:** 2026-10-11
+**Last updated:** 2026-10-12
 
 Legend: `[ ]` not started, `[x]` done and verified. Tick a scope item only when it works and was checked; tick the exit criterion only when it was demonstrated. Put the OpenSpec change name in the `Change:` line when a proposal exists.
 
@@ -60,17 +60,17 @@ Change: `m2-arrangement` (built as demos D1 to D8, see `openspec/changes/archive
 - [x] **Exit:** build a 16-bar arrangement like the mock with 4 tracks; golden render tests pass
 
 ## M2b Capture (2 to 3 wks)
-Change: _none yet_
+Change: `m2b-capture` (proposed 2026-10-12; built as demos D1 to D4, see `openspec/changes/archive/2026-10-12-m2b-capture/tasks.md`; recording onto armed tracks from System audio, Master or another track, Ableton style. Implemented and tested on 2026-10-12 (tasks.md: 18 of 25 done; what is left is the four PO demos, CI and the exit run). The items below are ticked when the PO has seen them work.)
 
-- [ ] `CaptureService`
-- [ ] WASAPI endpoint + process loopback
-- [ ] Capture source menu
-- [ ] Meter and live waveform
+- [ ] Track arm (R) and a per-track input menu: System audio per playback device, Master, another track
+- [ ] Record button and Mod+R: one take per armed track, placed as a clip and listed under Recordings (`AddTakes`, one undo step)
+- [ ] WASAPI endpoint + process loopback with device choice (`ICaptureSource`, `TakeWriter`)
+- [ ] Resample Master or another track (take tap on the engine output, sample-exact)
 - [ ] Exclusion/mute policy
-- [ ] Silence trim
-- [ ] Recordings category
-- [ ] Place on timeline
-- [ ] **Exit:** record 1 minute of a YouTube video; it appears in Recordings and as a clip at the playhead, with no DAW sound in it
+- [ ] Silence trim and placement by clock and latency (System takes)
+- [ ] Live take display: growing clip with waveform, input meter, no-signal warning
+- [ ] 30-minute limit, device lost / disk full handling, project actions during a recording
+- [ ] **Exit:** play a YouTube video and record 1 minute onto an armed track: it appears in Recordings and as a clip at the playhead, with no DAW sound in it; resample 4 bars of the song from Master onto a new track and it lines up
 
 ## M3 Sample editor (4 to 5 wks)
 Change: _none yet_
@@ -128,6 +128,7 @@ Change: _none yet_
 ### M7 Polish (3 wks)
 Change: _none yet_
 - [ ] Texture mode
+- [ ] One-app capture (record only the browser: process loopback include mode)
 - [ ] User warp markers
 - [ ] Crossfades
 - [ ] Adaptive snap
@@ -135,8 +136,7 @@ Change: _none yet_
 
 ### M8 Input recording (2 to 3 wks)
 Change: _none yet_
-- [ ] Mic/line-in and MIDI recording into arrangement/slots
-- [ ] Track arm
+- [ ] Mic/line-in and MIDI recording into arrangement/slots (track arm and the input menu exist since M2b; interface inputs join that menu)
 - [ ] Latency compensation
 
 ### M9 Effects + automation (3 to 5 wks)
@@ -179,3 +179,6 @@ Record decisions that came out of a milestone (for example a failed M0 check and
 - 2026-10-11: M2 perf (task 3.5): with 200 clips and waveforms the first version of the lanes took up to 15 ms per paint in release (drawing the thumbnails); each clip's waveform is now drawn once into an image and reused while scrolling and zooming (one new picture per paint), giving a median of 1.3 ms and a worst of about 6 ms. The test is tagged `hardware` (wall-clock time), so CI leaves it out; run `ctest --preset windows-msvc-release -L perf`.
 - 2026-10-11: Tracktion's live volume and pan follow a change through a ramp of about a second (measured on the meters: -12 dB reaches -18 dBFS after about 1.5 s), so a dragged fader is heard approaching the new level, not at once.
 - 2026-10-11: Tracktion's `LevelMeasurer::Client::getAndClearOverload` reports a request to clear, not an overload; the over light is derived from the peak above 0 dBFS.
+- 2026-10-12: M2b scope change (PO decision): recording works the Ableton way. Track arm (R) and a per-track input (System audio per playback device, Master, another track) come in M2b, with resampling of Master and tracks; recording only one app moves to M7; microphone and interface inputs stay in M8 and join the same input menu. Design doc 2.7 (C2, C4) and section 15 changed to match.
+- 2026-10-12: M2b spike 1.1 (master tap): the Master and track taps are a non-saved Tracktion plugin (`TakeTapPlugin`, type `samplerTap`) at the end of the master or the track plugin list, added without the undo manager (design D3 option 1). Checked: a Master take of an offline render equals `renderToWav` of the same bars sample for sample (difference under 1e-5, offset 0); a track take equals a render of that track alone (post volume and pan, pan 0.5 included); a muted track records silence; saving with taps in place leaves `samplerTap` out of the file (`saveEditAtomically` strips it); the undo history and the history token are unchanged; no allocation inside our callbacks over 30 s of render. Options 2 and 3 were not needed. The offline renderer pre-rolls 0.5 s at negative times: the tap skips everything before time zero.
+- 2026-10-12: M2b spike 1.1 (latency): `GetStreamLatency` reports 0 ms for endpoint and for process loopback on this machine (build 19045, Jabra Link 380). A click written by a JUCE output callback is seen by endpoint loopback 41.2 ms later (median of 10; range 40.7 to 41.4), so 41 ms is the constant used to place System takes while the device reports 0. Process loopback could not be measured the same way (our own sound is excluded from it). Open: whether process loopback follows a change of the Windows default device while it records (needs a second playback device and a manual switch); until checked, process loopback is used only for "the default device", and a named device is recorded with endpoint loopback.

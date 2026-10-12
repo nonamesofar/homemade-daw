@@ -1,6 +1,8 @@
 // Sampler: the app. Developer flags: --audio-start-delay <ms> holds back the "audio ready" signal; --open <project> opens
 // a project at start; --window-size <W>x<H>; --snapshot <png> saves the window content as a picture after a short wait
-// (--snapshot-delay <ms>, default 2500) and quits; --import <file or folder> imports it at start.
+// (--snapshot-delay <ms>, default 2500) and quits; --import <file or folder> imports it at start;
+// --capture-no-exclusion makes System audio takes behave as if Sampler could not be left out of them (the whole device is
+// recorded and Sampler mutes its own output while it records), to check that fallback on a machine where it is not needed.
 #include "AppController.h"
 #include "MainWindow.h"
 #include "ui/look/SamplerLookAndFeel.h"
@@ -40,6 +42,8 @@ public:
                 height = args[i + 1].fromFirstOccurrenceOf("x", false, false).getIntValue();
             }
         }
+
+        options.captureNoExclusion = args.contains("--capture-no-exclusion");
 
         juce::LookAndFeel::setDefaultLookAndFeel(&lookAndFeel);
 

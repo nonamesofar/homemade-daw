@@ -23,8 +23,8 @@ The intended workflow:
 |---|---|
 | Import WAV, MP3, FLAC, OGG | available |
 | Non-destructive: original audio is never modified, every edit is project data | available |
-| Multi-track arrangement timeline | planned |
-| Capture computer audio (WASAPI loopback), excluding the app's own sound | planned; proven in a probe |
+| Multi-track arrangement timeline | built; awaiting acceptance run |
+| Record computer audio (WASAPI loopback, app's own sound left out), the master or another track onto armed tracks | built; awaiting acceptance run |
 | Sample editor with beat, transient and manual slicing | planned |
 | 4x4 slice pads | planned |
 | Tempo-aware playback: re-pitch, beat-preserving and tonal warp modes | planned |

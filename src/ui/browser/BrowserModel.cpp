@@ -16,6 +16,14 @@ juce::String toString(Place place)
     return "All samples";
 }
 
+juce::String BrowserRow::tooltip() const
+{
+    if (recordedFrom.isEmpty() && recordedAt.isEmpty())
+        return {};
+    const auto when = recordedAt.replaceCharacter('T', ' ').substring(0, 16);
+    return "Recorded from " + (recordedFrom.isEmpty() ? juce::String("an input") : recordedFrom) + (when.isEmpty() ? juce::String() : ", " + when);
+}
+
 std::vector<BrowserRow> BrowserModel::rowsFrom(const model::SamplerState& state)
 {
     std::vector<BrowserRow> rows;
@@ -23,7 +31,7 @@ std::vector<BrowserRow> BrowserModel::rowsFrom(const model::SamplerState& state)
         if (child.hasType(model::ids::SOURCE))
         {
             const model::Source source(child);
-            rows.push_back({source.id(), source.name(), false, source.category()});
+            rows.push_back({source.id(), source.name(), false, source.category(), source.recordedFrom(), source.recordedAt()});
         }
     return rows;
 }

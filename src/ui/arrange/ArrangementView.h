@@ -1,12 +1,14 @@
 #pragma once
 
 #include "ArrangeGeometry.h"
+#include "ArmState.h"
 #include "ArrangeLogic.h"
 #include "commands/ArrangeCommands.h"
 #include "commands/CommandService.h"
 #include "engine/Arrangement.h"
 #include "engine/LevelMeters.h"
 #include "engine/Transport.h"
+#include "platform/ICaptureSource.h"
 #include "ui/widgets/Widgets.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -45,6 +47,13 @@ struct ArrangeContext
     std::function<void(const juce::Array<juce::File>&, commands::PlacementTarget)> importAndPlace;
     /** Imports with a placement that are still running. */
     std::function<std::vector<Placeholder>()> placeholders;
+
+    // Recording (M2b). All optional: without `arms` the R buttons do nothing.
+    ArmState* arms = nullptr;
+    std::function<std::vector<platform::PlaybackDevice>()> playbackDevices;
+    /** The takes that are growing right now (empty unless recording). */
+    std::function<std::vector<LiveTake>()> liveTakes;
+    std::function<bool()> isRecording;
 };
 
 class ArrangementView;
@@ -61,6 +70,11 @@ public:
     const juce::String& trackId() const { return info.id; }
     const engine::TrackInfo& track() const { return info; }
 
+    /** The state of R and the input label from the arrangement and the arm state. */
+    void syncRecordingState();
+    const juce::String& inputText() const { return inputLabelText; }
+    juce::Rectangle<int> inputArea() const;
+
     void startRename();
     bool isRenaming() const { return nameEditor != nullptr; }
     juce::TextEditor* renameEditor() { return nameEditor.get(); }
@@ -69,7 +83,7 @@ public:
     const MeterBallistics& meter() const { return ballistics; }
 
     ToggleButton muteButton{"M"}, soloButton{"S"};
-    juce::TextButton armButton{"R"};
+    ToggleButton armButton{"R"};
     ValueField volume;
     Knob pan;
 
@@ -93,6 +107,7 @@ private:
     bool selected = false;
     std::unique_ptr<juce::TextEditor> nameEditor;
     MeterBallistics ballistics;
+    juce::String inputLabelText;
 };
 
 //==============================================================================
@@ -192,6 +207,8 @@ public:
     std::optional<DropTarget> ghostTarget() const { return ghost; }
     /** The clips' rectangles as drawn, in this component's coordinates. */
     juce::Rectangle<int> boundsOfClip(const juce::String& clipId) const;
+    /** Paints only the growing takes of a recording (performance test). */
+    void paintLiveTakesOnly(juce::Graphics& g) { paintLiveTakes(g); }
     /** Paints with the waveforms of every visible clip (performance test). */
     int clipsDrawnInLastPaint() const { return lastDrawnClips; }
 
@@ -226,6 +243,7 @@ private:
     commands::PlacementTarget placementFor(const DropTarget&) const;
     void paintClip(juce::Graphics&, const engine::ClipInfo&, juce::Rectangle<float>, juce::Colour, bool selected, bool ghostOnly);
     void paintWaveform(juce::Graphics&, const engine::ClipInfo&, juce::Rectangle<float>, juce::Colour);
+    void paintLiveTakes(juce::Graphics&);
     void updateMove(const juce::MouseEvent&);
     void updateTrim(const juce::MouseEvent&);
     void commitDrag();
@@ -316,6 +334,25 @@ public:
     void scrollBy(double dxPixels, double dyPixels);
     void viewChanged();
 
+    // Recording: arming, the input of a track.
+    struct InputChoice
+    {
+        juce::String input; // stored form: "system:default", "system:<id>", "master", "track:<id>"
+        juce::String label;
+        bool ticked = false;
+    };
+    /** Everything the track can record, in menu order (a track cannot record itself). */
+    std::vector<InputChoice> inputChoices(const engine::TrackInfo&) const;
+    /** "In: System (Speakers)", "In: Master", "In: Drums". */
+    juce::String inputLabel(const engine::TrackInfo&) const;
+    void showInputMenu(const juce::String& trackId);
+    void setTrackInput(const juce::String& trackId, const juce::String& input);
+    /** Click on R: this track only; Mod-click: adds or removes it. */
+    void armClicked(const juce::String& trackId, bool toggle);
+    bool isArmed(const juce::String& trackId) const { return ctx.arms != nullptr && ctx.arms->isArmed(trackId); }
+    void syncRecordingState();
+    const std::vector<platform::PlaybackDevice>& playbackDevices() const { return devices; }
+
     /** Apply helpers used by the parts (selection is updated with the result). */
     void applyCommand(commands::ArrangeCommand&, bool selectResult);
     void locate(double beat) { ctx.transport.locateBeats(beat); }
@@ -339,6 +376,7 @@ private:
     bool anyRendering = false;
     double renderPollMs = 0.0;
     std::map<juce::String, std::unique_ptr<juce::AudioThumbnailBase>> thumbnails;
+    std::vector<platform::PlaybackDevice> devices;
 
     TrackHeaderList headerList;
     TimelineRuler rulerComponent;
@@ -349,5 +387,8 @@ private:
     double lastVBlank = 0.0;
     bool updatingScrollBars = false;
     bool initialZoomDone = false;
+    bool hadLiveTakes = false;
+    bool devicesLoaded = false;
+    double deviceCheckMs = 0.0;
 };
 } // namespace sampler::ui

@@ -2,7 +2,9 @@
 add_library(sampler_app_core STATIC
     AppController.cpp AppController.h
     MainComponent.cpp MainComponent.h
-    MainWindow.cpp MainWindow.h)
+    MainWindow.cpp MainWindow.h
+    RecordingController.cpp RecordingController.h
+    RecordingPolicy.cpp RecordingPolicy.h)
 target_include_directories(sampler_app_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(sampler_app_core PUBLIC sampler_engine sampler_io sampler_commands sampler_model sampler_ui sampler_juce)
 sampler_target_debuggable(sampler_app_core)

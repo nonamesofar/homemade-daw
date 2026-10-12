@@ -18,6 +18,7 @@ namespace engine
 class Arrangement;
 class LevelMeters;
 class Transport;
+class TakeRecorder;
 } // namespace engine
 
 namespace detail
@@ -79,6 +80,8 @@ public:
     const engine::Arrangement& arrangement() const;
     engine::Transport& transport();
     engine::LevelMeters& levelMeters();
+    /** Taps on the master and the track outputs for recording (design D2, D3). */
+    engine::TakeRecorder& takeRecorder();
     /** The Tracktion edit, for code inside src/engine only (include EngineSetup.h to use it). */
     tracktion::engine::Edit& tracktionEdit();
     /** Names of the decoded files that clips use but that are missing (found when the project was opened). */

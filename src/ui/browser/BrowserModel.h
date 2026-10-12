@@ -15,6 +15,11 @@ struct BrowserRow
     juce::String name;
     bool importing = false;
     model::Category category = model::Category::loop;
+    /** Takes only: where and when they were recorded (shown in the tooltip). */
+    juce::String recordedFrom, recordedAt;
+
+    /** "Recorded from Master, 2026-10-12 10:15", or empty for a sound that was not recorded. */
+    juce::String tooltip() const;
 };
 
 /** The places in the browser's list on the left. */

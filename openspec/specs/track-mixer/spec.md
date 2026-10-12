@@ -113,10 +113,3 @@ The header bar SHALL show the master output's volume (same range and controls as
 #### Scenario: Over light latches
 - **WHEN** the mix goes above 0 dBFS once and then becomes quiet
 - **THEN** the over light stays on until the user clicks it
-
-### Requirement: Record arm is not available yet
-The track header SHALL show the R (record arm) button from the mock as disabled, with a tooltip that recording from inputs comes in a later version.
-
-#### Scenario: Disabled
-- **WHEN** the user clicks R on a track header
-- **THEN** nothing happens and the tooltip explains it is not available yet

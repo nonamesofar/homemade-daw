@@ -2,6 +2,10 @@
 //
 //   CaptureProbe record <out.wav> <seconds> [--endpoint]
 //       Records what the computer plays (play a YouTube video meanwhile). Prints which loopback mode was used.
+//   CaptureProbe latency
+//       Task 1.1 (d) of the m2b-capture change: prints GetStreamLatency of endpoint and process loopback, and plays a
+//       click every half second on the default device while an endpoint loopback records, then reports how long after
+//       the output callback wrote each click the capture saw it (the offset design D6 has to correct for).
 //   CaptureProbe selftest [seconds] [--mute-own]
 //       Plays a 440 Hz tone itself, with the audio device closed for a few seconds in the middle (nothing playing at
 //       all), records the output, and checks length, tone and gap. With --mute-own the tone is muted while recording
@@ -9,6 +13,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -225,6 +230,114 @@ int engineMuteTest()
     return mutedN > 0 && mutedOk == mutedN && liveN > 0 && liveOk == liveN ? 0 : 3;
 }
 
+
+/** Writes a short click every 500 ms and remembers when (hi-res ms) the callback wrote it. */
+class ClickCallback : public juce::AudioIODeviceCallback
+{
+public:
+    void audioDeviceAboutToStart(juce::AudioIODevice* d) override { rate = d->getCurrentSampleRate(); }
+    void audioDeviceStopped() override {}
+
+    void audioDeviceIOCallbackWithContext(const float* const*, int, float* const* out, int numOut, int numSamples,
+                                          const juce::AudioIODeviceCallbackContext&) override
+    {
+        const auto callbackMs = juce::Time::getMillisecondCounterHiRes();
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float s = 0.0f;
+            if (counter % static_cast<juce::int64>(rate / 2.0) < 48)
+            {
+                s = 0.5f;
+                if (counter % static_cast<juce::int64>(rate / 2.0) == 0 && times.size() < times.capacity())
+                    times.push_back(callbackMs + 1000.0 * i / rate);
+            }
+            ++counter;
+            for (int c = 0; c < numOut; ++c)
+                if (out[c] != nullptr)
+                    out[c][i] = s;
+        }
+    }
+
+    std::vector<double> times{std::vector<double>()};
+    void reserve() { times.reserve(64); }
+
+private:
+    double rate = 44100.0;
+    juce::int64 counter = 1; // no click in the very first sample
+};
+
+int latencyMeasurement()
+{
+    const auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("sampler-tests");
+    dir.createDirectory();
+
+    for (const bool process : {false, true})
+    {
+        auto capture = sampler::platform::createCaptureSource();
+        sampler::platform::CaptureOptions options;
+        options.excludeOwnProcess = process;
+        const auto out = dir.getChildFile(process ? "latency-process.wav" : "latency-endpoint.wav");
+
+        juce::AudioDeviceManager manager;
+        ClickCallback clicks;
+        clicks.reserve();
+        if (manager.initialiseWithDefaultDevices(0, 2).isNotEmpty())
+        {
+            std::printf("no audio device\n");
+            return 1;
+        }
+        manager.addAudioCallback(&clicks);
+        juce::Thread::sleep(500);
+        if (capture->start(out, options).failed())
+        {
+            std::printf("start failed\n");
+            return 1;
+        }
+        const auto stats0 = capture->stats();
+        juce::Thread::sleep(5000);
+        capture->stop();
+        manager.removeAudioCallback(&clicks);
+        const auto stats = capture->stats();
+        std::printf("[%s] mode=%s stream latency=%.2f ms  device=%s  rate=%.0f\n", process ? "process" : "endpoint",
+                    stats.mode.toRawUTF8(), stats.streamLatencySeconds * 1000.0, stats.deviceName.toRawUTF8(), stats.sampleRate);
+        (void) stats0;
+        if (process)
+        {
+            std::printf("  (own clicks are left out in process mode: no offset to measure)\n");
+            continue;
+        }
+
+        double rate = 0.0, length = 0.0;
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatReader> reader(wav.createReaderFor(out.createInputStream().release(), true));
+        if (reader == nullptr)
+            return 1;
+        rate = reader->sampleRate;
+        length = static_cast<double>(reader->lengthInSamples);
+        juce::AudioBuffer<float> b(static_cast<int>(reader->numChannels), static_cast<int>(length));
+        reader->read(&b, 0, static_cast<int>(length), 0, true, true);
+        std::vector<double> found;
+        int quiet = static_cast<int>(rate * 0.3);
+        for (int i = 0; i < b.getNumSamples(); ++i)
+        {
+            if (std::abs(b.getSample(0, i)) > 0.05f && quiet >= static_cast<int>(rate * 0.3))
+                found.push_back(stats.startedAtMs + 1000.0 * i / rate);
+            quiet = std::abs(b.getSample(0, i)) > 0.05f ? 0 : quiet + 1;
+        }
+        std::vector<double> offsets;
+        for (const auto seen : found)
+            for (const auto written : clicks.times)
+                if (seen - written > -50.0 && seen - written < 400.0)
+                    offsets.push_back(seen - written);
+        std::sort(offsets.begin(), offsets.end());
+        std::printf("  clicks played %zu, heard %zu, matched %zu\n", clicks.times.size(), found.size(), offsets.size());
+        if (!offsets.empty())
+            std::printf("  click heard %.1f ms after the output callback wrote it (median; min %.1f, max %.1f)\n",
+                        offsets[offsets.size() / 2], offsets.front(), offsets.back());
+    }
+    return 0;
+}
+
 int selftest(double seconds, bool muteOwn, bool processMode)
 {
     const auto out = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("sampler-tests/capture-selftest.wav");
@@ -354,6 +467,8 @@ int main(int argc, char** argv)
         return record(juce::File(juce::String::fromUTF8(argv[2])), std::atof(argv[3]), excludeOwn);
     if (mode == "engine-mute")
         return engineMuteTest();
+    if (mode == "latency")
+        return latencyMeasurement();
     if (mode == "selftest")
         return selftest(argc >= 3 && std::atof(argv[2]) > 0 ? std::atof(argv[2]) : 14.0, muteOwn, processMode);
 
