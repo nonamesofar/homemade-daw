@@ -1,12 +1,14 @@
 // WASAPI loopback capture, outside JUCE's device layer.
 //
-//   capture thread (MMCSS "Capture", event driven) -> AbstractFifo ring (10 s) -> writer thread -> WAV
+//   capture thread (MMCSS "Capture", event driven) -> TakeWriter (SPSC ring 10 s -> writer thread -> WAV)
 //
 // Loopback sends no packets while nothing plays, so gaps are measured from each packet's QPC timestamp
 // and filled with silence, keeping the file as long as the elapsed time.
+#include "../CaptureGap.h"
 #include "../ICaptureSource.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <juce_events/juce_events.h>
 
 #include <windows.h>
 
@@ -15,11 +17,14 @@
 #include <avrt.h>
 #include <mmdeviceapi.h>
 #include <mmreg.h>
+#include <propidl.h>
+#include <propsys.h>
 #include <wrl/client.h>
 #include <wrl/implements.h>
 
 #include <atomic>
 #include <cmath>
+#include <limits>
 #include <cstring>
 #include <vector>
 
@@ -86,17 +91,60 @@ HRESULT activateProcessLoopback(ComPtr<IAudioClient>& client)
     return unknown.As(&client);
 }
 
-HRESULT activateEndpointLoopback(ComPtr<IAudioClient>& client)
+/** PKEY_Device_FriendlyName spelled out so no extra library is needed. */
+const PROPERTYKEY kFriendlyNameKey = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
+
+ComPtr<IMMDeviceEnumerator> createEnumerator()
 {
     ComPtr<IMMDeviceEnumerator> enumerator;
-    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
-    if (FAILED(hr))
-        return hr;
+    CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
+    return enumerator;
+}
 
+/** The device with this endpoint id, or the default render device when `deviceId` is empty. */
+HRESULT openDevice(const juce::String& deviceId, ComPtr<IMMDevice>& device)
+{
+    auto enumerator = createEnumerator();
+    if (enumerator == nullptr)
+        return E_FAIL;
+    if (deviceId.isEmpty())
+        return enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+    return enumerator->GetDevice(deviceId.toWideCharPointer(), &device);
+}
+
+juce::String friendlyName(IMMDevice& device)
+{
+    ComPtr<IPropertyStore> store;
+    if (FAILED(device.OpenPropertyStore(STGM_READ, &store)))
+        return {};
+    PROPVARIANT value;
+    PropVariantInit(&value);
+    juce::String name;
+    if (SUCCEEDED(store->GetValue(kFriendlyNameKey, &value)) && value.vt == VT_LPWSTR && value.pwszVal != nullptr)
+        name = juce::String(value.pwszVal);
+    PropVariantClear(&value);
+    return name;
+}
+
+juce::String endpointId(IMMDevice& device)
+{
+    LPWSTR id = nullptr;
+    juce::String text;
+    if (SUCCEEDED(device.GetId(&id)) && id != nullptr)
+        text = juce::String(id);
+    if (id != nullptr)
+        CoTaskMemFree(id);
+    return text;
+}
+
+HRESULT activateEndpointLoopback(ComPtr<IAudioClient>& client, const juce::String& deviceId = {}, juce::String* nameOut = nullptr)
+{
     ComPtr<IMMDevice> device;
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+    HRESULT hr = openDevice(deviceId, device);
     if (FAILED(hr))
         return hr;
+    if (nameOut != nullptr)
+        *nameOut = friendlyName(*device.Get());
 
     return device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(client.GetAddressOf()));
 }
@@ -117,6 +165,42 @@ double defaultEndpointRate()
     return rate;
 }
 
+/**
+    How each channel of a packet goes into the left or right output channel when there are more than two (the order
+    of the channels in a packet follows the bits of the channel mask). Two or fewer channels pass through.
+*/
+std::vector<float> downmixWeights(int channelCount, DWORD mask)
+{
+    std::vector<float> w(static_cast<size_t>(channelCount) * 2, 0.0f); // [channel * 2 + side]
+    int channel = 0;
+    for (int bit = 0; bit < 32 && channel < channelCount; ++bit)
+    {
+        if (mask != 0 && (mask & (1u << bit)) == 0)
+            continue;
+        const auto flag = 1u << bit;
+        const bool left = flag == SPEAKER_FRONT_LEFT || flag == SPEAKER_BACK_LEFT || flag == SPEAKER_FRONT_LEFT_OF_CENTER
+                          || flag == SPEAKER_SIDE_LEFT || flag == SPEAKER_TOP_FRONT_LEFT || flag == SPEAKER_TOP_BACK_LEFT;
+        const bool right = flag == SPEAKER_FRONT_RIGHT || flag == SPEAKER_BACK_RIGHT || flag == SPEAKER_FRONT_RIGHT_OF_CENTER
+                           || flag == SPEAKER_SIDE_RIGHT || flag == SPEAKER_TOP_FRONT_RIGHT || flag == SPEAKER_TOP_BACK_RIGHT;
+        const bool frontPair = flag == SPEAKER_FRONT_LEFT || flag == SPEAKER_FRONT_RIGHT;
+        const float gain = frontPair ? 1.0f : 0.7071f;
+        const auto base = static_cast<size_t>(channel) * 2;
+        if (left)
+            w[base] = gain;
+        else if (right)
+            w[base + 1] = gain;
+        else // centre, LFE, top/back centre: into both
+        {
+            const float g = flag == SPEAKER_LOW_FREQUENCY ? 0.5f : 0.7071f;
+            w[base] = w[base + 1] = g;
+        }
+        ++channel;
+    }
+    for (; channel < channelCount; ++channel) // no mask: alternate left and right
+        w[static_cast<size_t>(channel) * 2 + static_cast<size_t>(channel & 1)] = 1.0f;
+    return w;
+}
+
 /** KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, spelled out so no extra library is needed. */
 const GUID kSubtypeIeeeFloat = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 
@@ -127,8 +211,6 @@ juce::int64 qpcNow100ns()
     QueryPerformanceCounter(&now);
     return static_cast<juce::int64>(static_cast<double>(now.QuadPart) * 1.0e7 / static_cast<double>(freq.QuadPart));
 }
-
-constexpr int kFifoSeconds = 10;
 } // namespace
 
 class WasapiLoopbackCapture final : public ICaptureSource
@@ -141,7 +223,10 @@ public:
         if (isRecording())
             return juce::Result::fail("already recording");
         stop(); // clean up after a capture that ended by itself (device lost) and was never stopped
+        if (takeUsed) // TakeWriter writes one take per instance and never reopens a finished file
+            return juce::Result::fail("this capture source was already used: create a new one for each take");
 
+        previousEndFrame = 0;
         destinationFile = destination;
         captureOptions = options;
         startResult = juce::Result::ok();
@@ -154,13 +239,10 @@ public:
         peak = 0.0f;
         silenceFrames = 0;
         silenceDropped = 0;
-        framesWritten = 0;
-        overruns = 0;
         gapFills = 0;
         largestGap = 0;
         discontinuities = 0;
-        writeFailed = false;
-        captureFinished = false;
+        finishedTake = {};
 
         captureThread = std::make_unique<CaptureThread>(*this);
         captureThread->startThread(juce::Thread::Priority::highest);
@@ -179,13 +261,13 @@ public:
 
     juce::Result stop() override
     {
-        if (captureThread == nullptr && writerThread == nullptr)
+        if (captureThread == nullptr && ! take_.isOpen())
             return juce::Result::ok();
 
         stopThreads();
 
         const juce::ScopedLock lock(statsLock);
-        if (writeFailed && !statsData.writeFailed)
+        if (finishedTake.writeFailed && ! statsData.writeFailed)
         {
             statsData.writeFailed = true;
             appendError("writing " + destinationFile.getFileName() + " failed (disk full?): the recording is incomplete");
@@ -199,70 +281,39 @@ public:
     {
         const juce::ScopedLock lock(statsLock);
         auto s = statsData;
-        s.framesWritten = framesWritten;
+        s.framesWritten = take_.framesKept();
         s.silenceFramesInserted = silenceFrames;
         s.silenceFramesDropped = silenceDropped;
-        s.overruns = overruns;
+        s.overruns = take_.overruns();
         s.gapFills = gapFills;
         s.largestGapFrames = largestGap;
         s.discontinuities = discontinuities;
-        s.writeFailed = s.writeFailed || writeFailed;
+        s.writeFailed = s.writeFailed || take_.writeFailed();
+        s.limitReached = take_.limitReached();
         s.peak = peak;
         return s;
     }
 
-private:
-    //==============================================================================
-    class WriterThread final : public juce::Thread
+    void discardBefore(double clockMs) override
     {
-    public:
-        WriterThread(WasapiLoopbackCapture& o, std::unique_ptr<juce::AudioFormatWriter> w)
-            : juce::Thread("Capture writer"), owner(o), writer(std::move(w))
+        double startedAt = 0.0;
         {
+            const juce::ScopedLock lock(statsLock);
+            startedAt = statsData.startedAtMs;
         }
-
-        void run() override
+        if (std::isinf(clockMs))
         {
-            juce::AudioBuffer<float> block(owner.channels, 4096);
-            bool failed = false;
-            for (;;)
-            {
-                const auto ready = owner.fifo->getNumReady();
-                if (ready == 0)
-                {
-                    // Everything recorded is written: finish once capture is over or we are asked to exit.
-                    if (owner.captureFinished || threadShouldExit())
-                        break;
-                    wait(10);
-                    continue;
-                }
-
-                const auto n = juce::jmin(ready, 4096);
-                int start1, size1, start2, size2;
-                owner.fifo->prepareToRead(n, start1, size1, start2, size2);
-                for (int c = 0; c < owner.channels; ++c)
-                {
-                    block.copyFrom(c, 0, owner.ring, c, start1, size1);
-                    if (size2 > 0)
-                        block.copyFrom(c, size1, owner.ring, c, start2, size2);
-                }
-                owner.fifo->finishedRead(size1 + size2);
-
-                // After a failed write keep emptying the ring (so capture does not overrun), but stop writing.
-                if (!failed && !writer->writeFromAudioSampleBuffer(block, 0, size1 + size2))
-                {
-                    failed = true;
-                    owner.writeFailed = true;
-                }
-            }
-            writer.reset(); // flushes and finalises the WAV header
+            take_.keepFrom((std::numeric_limits<juce::int64>::max)());
+            return;
         }
+        const auto frames = static_cast<juce::int64>((clockMs - startedAt) * take_.options().sampleRate / 1000.0);
+        take_.keepFrom(juce::jmax<juce::int64>(0, frames));
+    }
 
-    private:
-        WasapiLoopbackCapture& owner;
-        std::unique_ptr<juce::AudioFormatWriter> writer;
-    };
+    const TakeWriter& take() const override { return take_; }
+    TakeResult takeResult() const override { return finishedTake; }
 
+private:
     //==============================================================================
     class CaptureThread final : public juce::Thread
     {
@@ -308,17 +359,24 @@ private:
         {
             ComPtr<IAudioClient> client;
             juce::String processFailure;
+            juce::String deviceName;
             bool processLoopback = false;
             double rate = 0.0;
             int channelCount = 2;
+            DWORD channelMask = 0;
+            const bool defaultDevice = owner.captureOptions.deviceId.isEmpty();
 
-            if (owner.captureOptions.excludeOwnProcess)
+            // Process loopback follows the Windows default device, so it is only used for "the default device".
+            if (owner.captureOptions.excludeOwnProcess && defaultDevice)
             {
                 const HRESULT hr = owner.captureOptions.simulateProcessLoopbackFailure ? E_NOTIMPL : activateProcessLoopback(client);
                 if (SUCCEEDED(hr))
                 {
                     processLoopback = true;
                     rate = defaultEndpointRate();
+                    ComPtr<IMMDevice> device;
+                    if (SUCCEEDED(openDevice({}, device)))
+                        deviceName = friendlyName(*device.Get());
                 }
                 else
                 {
@@ -333,14 +391,16 @@ private:
 
             if (!processLoopback)
             {
-                const HRESULT hr = activateEndpointLoopback(client);
+                const HRESULT hr = activateEndpointLoopback(client, owner.captureOptions.deviceId, &deviceName);
                 if (FAILED(hr))
-                    return juce::Result::fail(hresultText("cannot open the default output device", hr));
+                    return juce::Result::fail(hresultText(defaultDevice ? "cannot open the default output device" : "cannot open the output device", hr));
                 if (FAILED(client->GetMixFormat(&mix)) || mix == nullptr)
                     return juce::Result::fail("cannot read the output device format");
                 format = mix;
                 rate = static_cast<double>(mix->nSamplesPerSec);
                 channelCount = static_cast<int>(mix->nChannels);
+                if (mix->wFormatTag == WAVE_FORMAT_EXTENSIBLE)
+                    channelMask = reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(mix)->dwChannelMask;
             }
             else
             {
@@ -395,6 +455,11 @@ private:
                 return juce::Result::fail(hresultText("loopback Initialize failed", hr));
             }
 
+            REFERENCE_TIME latency = 0;
+            double latencySeconds = 0.0;
+            if (SUCCEEDED(client->GetStreamLatency(&latency)))
+                latencySeconds = static_cast<double>(latency) / 1.0e7;
+
             ComPtr<IAudioCaptureClient> captureClient;
             if (FAILED(client->SetEventHandle(bufferEvent)) || FAILED(client->GetService(IID_PPV_ARGS(&captureClient))))
             {
@@ -402,7 +467,8 @@ private:
                 return juce::Result::fail("cannot get the capture service");
             }
 
-            if (!owner.openOutput(rate, channelCount))
+            const int outChannels = juce::jmin(channelCount, 2);
+            if (!owner.openOutput(rate, outChannels))
             {
                 CloseHandle(bufferEvent);
                 return juce::Result::fail("cannot create " + owner.destinationFile.getFullPathName());
@@ -412,34 +478,45 @@ private:
                 const juce::ScopedLock lock(owner.statsLock);
                 owner.statsData.mode = processLoopback ? "process-loopback" : "endpoint-loopback";
                 owner.statsData.processLoopbackFailure = processFailure;
+                owner.statsData.deviceName = deviceName;
                 owner.statsData.sampleRate = rate;
-                owner.statsData.channels = channelCount;
+                owner.statsData.channels = outChannels;
+                owner.statsData.streamLatencySeconds = latencySeconds;
             }
 
+            std::vector<float> weights;
+            if (channelCount > 2)
+                weights = downmixWeights(channelCount, channelMask);
+
             const auto qpcStart = qpcNow100ns();
+            const auto startedAtMs = juce::Time::getMillisecondCounterHiRes();
             hr = owner.captureOptions.simulateStreamStartFailure ? E_FAIL : client->Start();
             if (FAILED(hr))
             {
                 CloseHandle(bufferEvent);
                 return juce::Result::fail(hresultText("Start failed", hr)); // start() stops the writer, deletes the file
             }
+            {
+                const juce::ScopedLock lock(owner.statsLock);
+                owner.statsData.startedAtMs = startedAtMs;
+            }
             owner.streamStarted = true;
             owner.startResult = juce::Result::ok();
             owner.started.signal();
 
             HANDLE handles[2] = {bufferEvent, wakeEvent};
-            std::vector<float> floats;
+            std::vector<float> floats, mixed;
 
             while (!threadShouldExit() && SUCCEEDED(hr))
             {
                 // Silent periods raise no event, hence the timeout.
                 WaitForMultipleObjects(2, handles, FALSE, 50);
-                hr = drain(*captureClient.Get(), qpcStart, rate, channelCount, isFloat, floats);
+                hr = drain(*captureClient.Get(), qpcStart, rate, channelCount, weights, isFloat, floats, mixed);
             }
 
             client->Stop();
             if (SUCCEEDED(hr))
-                hr = drain(*captureClient.Get(), qpcStart, rate, channelCount, isFloat, floats);
+                hr = drain(*captureClient.Get(), qpcStart, rate, channelCount, weights, isFloat, floats, mixed);
             CloseHandle(bufferEvent);
 
             if (FAILED(hr))
@@ -456,13 +533,13 @@ private:
 
             // Silence at the end (nothing played until stop) still counts as recorded time.
             const auto elapsedFrames = static_cast<juce::int64>(static_cast<double>(qpcNow100ns() - qpcStart) * rate / 1.0e7);
-            owner.fillSilenceUpTo(elapsedFrames);
+            owner.addSilence(CaptureGap::framesToInsert(owner.previousEndFrame, elapsedFrames, false, rate));
             return juce::Result::ok();
         }
 
         /** Reads every packet the device has. Returns the first failure (e.g. device lost) or S_OK. */
-        HRESULT drain(IAudioCaptureClient& captureClient, juce::int64 qpcStart, double rate, int channelCount, bool isFloat,
-                      std::vector<float>& floats)
+        HRESULT drain(IAudioCaptureClient& captureClient, juce::int64 qpcStart, double rate, int channelCount,
+                      const std::vector<float>& weights, bool isFloat, std::vector<float>& floats, std::vector<float>& mixed)
         {
             for (;;)
             {
@@ -486,9 +563,20 @@ private:
                 if ((bufferFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0)
                     ++owner.discontinuities;
 
-                // Fill the gap before this packet (nothing was playing) with silence.
-                const auto packetFrame = static_cast<juce::int64>(static_cast<double>(static_cast<juce::int64>(qpcPosition) - qpcStart) * rate / 1.0e7);
-                owner.fillSilenceUpTo(packetFrame);
+                if ((bufferFlags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) != 0)
+                {
+                    // The QPC position of this packet is not valid: no gap can be measured, the packet follows the last.
+                    owner.previousEndFrame += static_cast<juce::int64>(frames);
+                }
+                else
+                {
+                    // Fill the hole before this packet (nothing was playing) with silence; clock drift is not a hole.
+                    const auto packetFrame =
+                        static_cast<juce::int64>(static_cast<double>(static_cast<juce::int64>(qpcPosition) - qpcStart) * rate / 1.0e7);
+                    owner.addSilence(CaptureGap::framesToInsert(owner.previousEndFrame, packetFrame,
+                                                                (bufferFlags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0, rate));
+                    owner.previousEndFrame = packetFrame + static_cast<juce::int64>(frames);
+                }
 
                 floats.assign(static_cast<size_t>(frames) * static_cast<size_t>(channelCount), 0.0f);
                 if ((bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT) == 0 && data != nullptr)
@@ -506,7 +594,22 @@ private:
                     }
                 }
 
-                owner.push(floats.data(), static_cast<int>(frames));
+                if (channelCount > 2)
+                {
+                    mixed.assign(static_cast<size_t>(frames) * 2, 0.0f);
+                    for (size_t f = 0; f < frames; ++f)
+                        for (int c = 0; c < channelCount; ++c)
+                        {
+                            const auto v = floats[f * static_cast<size_t>(channelCount) + static_cast<size_t>(c)];
+                            mixed[f * 2] += v * weights[static_cast<size_t>(c) * 2];
+                            mixed[f * 2 + 1] += v * weights[static_cast<size_t>(c) * 2 + 1];
+                        }
+                    owner.push(mixed.data(), 2, static_cast<int>(frames));
+                }
+                else
+                {
+                    owner.push(floats.data(), channelCount, static_cast<int>(frames));
+                }
                 hr = captureClient.ReleaseBuffer(frames);
                 if (FAILED(hr))
                     return hr;
@@ -528,11 +631,11 @@ private:
             captureThread.reset();
         }
 
-        captureFinished = true;
-        if (writerThread != nullptr)
+        if (take_.isOpen())
         {
-            writerThread->stopThread(10000);
-            writerThread.reset();
+            finishedTake = take_.finish();
+            const juce::ScopedLock lock(statsLock);
+            statsData.limitReached = finishedTake.limitReached;
         }
     }
 
@@ -544,109 +647,43 @@ private:
 
     bool openOutput(double rate, int channelCount)
     {
-        channels = channelCount;
-        fifoSize = static_cast<int>(rate) * kFifoSeconds;
-        fifo = std::make_unique<juce::AbstractFifo>(fifoSize);
-        ring.setSize(channels, fifoSize);
-        ring.clear();
-
-        destinationFile.deleteFile();
-        destinationFile.getParentDirectory().createDirectory();
-        juce::WavAudioFormat wav;
-        std::unique_ptr<juce::FileOutputStream> stream(destinationFile.createOutputStream());
-        if (stream == nullptr)
-            return false;
-        std::unique_ptr<juce::AudioFormatWriter> writer(
-            wav.createWriterFor(stream.get(), rate, static_cast<unsigned int>(channels), 32, {}, 0));
-        if (writer == nullptr)
-            return false;
-        stream.release();
-
-        writerThread = std::make_unique<WriterThread>(*this, std::move(writer));
-        writerThread->startThread();
-        return true;
+        TakeOptions options;
+        options.file = destinationFile;
+        options.sampleRate = rate;
+        options.channels = channelCount;
+        options.maxSeconds = captureOptions.maxSeconds;
+        options.trimSilence = captureOptions.trimSilence;
+        options.silenceFramesPerCall = static_cast<int>(rate * options.ringSeconds); // as much as the ring has room for
+        takeUsed = take_.open(options).wasOk();
+        return takeUsed;
     }
 
-    /** Appends interleaved float frames to the ring (capture thread only). */
-    void push(const float* interleaved, int frames)
+    /** Appends interleaved float frames to the take (capture thread only). */
+    void push(const float* interleaved, int channels, int frames)
     {
         if (frames <= 0)
             return;
-
         float framePeak = 0.0f;
         for (int i = 0; i < frames * channels; ++i)
             framePeak = juce::jmax(framePeak, std::abs(interleaved[i]));
         if (framePeak > peak)
             peak = framePeak;
-
-        if (fifo->getFreeSpace() < frames)
-        {
-            ++overruns; // the writer cannot keep up: drop rather than block the capture thread
-            return;
-        }
-
-        int start1, size1, start2, size2;
-        fifo->prepareToWrite(frames, start1, size1, start2, size2);
-        for (int c = 0; c < channels; ++c)
-        {
-            auto* d1 = ring.getWritePointer(c, start1);
-            for (int i = 0; i < size1; ++i)
-                d1[i] = interleaved[i * channels + c];
-            if (size2 > 0)
-            {
-                auto* d2 = ring.getWritePointer(c, start2);
-                for (int i = 0; i < size2; ++i)
-                    d2[i] = interleaved[(size1 + i) * channels + c];
-            }
-        }
-        fifo->finishedWrite(size1 + size2);
-        framesWritten += frames;
+        take_.pushInterleaved(interleaved, channels, frames);
     }
 
     /**
-        If fewer than `targetFrame` frames have been recorded, pads with silence (ignores gaps under 10 ms: timestamp
-        jitter). Waits for the writer when the ring is full, since the silence must not be dropped; but once capture is
-        being stopped it waits at most 1 s more, then gives up and counts what it could not insert.
+        Owes the take `missing` frames of silence (the capture thread decided it is a real hole, see CaptureGap). Never
+        blocks: the take writes it in bounded steps (a long pause must not stall the thread that empties the 200 ms
+        WASAPI buffer), and before the first sound of a trimmed take it is only counted.
     */
-    void fillSilenceUpTo(juce::int64 targetFrame)
+    void addSilence(juce::int64 missing)
     {
-        const auto tolerance = static_cast<juce::int64>(statsData.sampleRate / 100.0); // written by this thread only
-        auto missing = targetFrame - framesWritten;
-        if (missing <= tolerance)
+        if (missing <= 0)
             return;
-        const juce::int64 before = framesWritten;
-
-        std::vector<float> zeros(static_cast<size_t>(juce::jmin<juce::int64>(missing, 8192)) * static_cast<size_t>(channels), 0.0f);
-        bool exitSeen = false;
-        juce::uint32 exitSeenAt = 0;
-        while (missing > 0)
-        {
-            const auto n = static_cast<int>(juce::jmin<juce::int64>(missing, 8192));
-            if (fifo->getFreeSpace() < n)
-            {
-                if (juce::Thread::currentThreadShouldExit())
-                {
-                    const auto now = juce::Time::getMillisecondCounter();
-                    if (!exitSeen)
-                    {
-                        exitSeen = true;
-                        exitSeenAt = now;
-                    }
-                    else if (now - exitSeenAt > 1000)
-                    {
-                        silenceDropped += missing;
-                        break;
-                    }
-                }
-                juce::Thread::sleep(2); // let the writer catch up
-                continue;
-            }
-            push(zeros.data(), n);
-            silenceFrames += n;
-            missing -= n;
-        }
+        take_.addPendingSilence(missing);
+        silenceFrames += missing;
         ++gapFills;
-        largestGap = juce::jmax<juce::int64>(largestGap, framesWritten - before);
+        largestGap = juce::jmax<juce::int64>(largestGap, missing);
     }
 
     //==============================================================================
@@ -656,27 +693,58 @@ private:
     juce::WaitableEvent started;
     std::atomic<bool> streamStarted{false};
 
-    int channels = 2;
-    int fifoSize = 0;
-    std::unique_ptr<juce::AbstractFifo> fifo;
-    juce::AudioBuffer<float> ring;
-
+    bool takeUsed = false;            // single-use: set once the take file was opened
+    juce::int64 previousEndFrame = 0; // capture thread only: where the previous packet ended on the QPC clock
+    TakeWriter take_;
+    TakeResult finishedTake;
     std::unique_ptr<CaptureThread> captureThread;
-    std::unique_ptr<WriterThread> writerThread;
-    std::atomic<bool> captureFinished{false};
 
     mutable juce::CriticalSection statsLock;
     CaptureStats statsData;
     std::atomic<float> peak{0.0f};
-    std::atomic<juce::int64> framesWritten{0};
     std::atomic<juce::int64> silenceFrames{0};
     std::atomic<juce::int64> silenceDropped{0};
-    std::atomic<int> overruns{0};
     std::atomic<int> gapFills{0};
     std::atomic<juce::int64> largestGap{0};
     std::atomic<int> discontinuities{0};
-    std::atomic<bool> writeFailed{false};
 };
 
 std::unique_ptr<ICaptureSource> createCaptureSource() { return std::make_unique<WasapiLoopbackCapture>(); }
+
+std::vector<PlaybackDevice> listPlaybackDevices()
+{
+    std::vector<PlaybackDevice> devices;
+    const HRESULT coInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED); // S_FALSE / RPC_E_CHANGED_MODE: already initialised
+    {
+        auto enumerator = createEnumerator();
+        if (enumerator != nullptr)
+        {
+            juce::String defaultId;
+            ComPtr<IMMDevice> def;
+            if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &def)))
+                defaultId = endpointId(*def.Get());
+
+            ComPtr<IMMDeviceCollection> collection;
+            UINT count = 0;
+            if (SUCCEEDED(enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection)) && SUCCEEDED(collection->GetCount(&count)))
+            {
+                for (UINT i = 0; i < count; ++i)
+                {
+                    ComPtr<IMMDevice> device;
+                    if (FAILED(collection->Item(i, &device)))
+                        continue;
+                    PlaybackDevice d;
+                    d.id = endpointId(*device.Get());
+                    d.name = friendlyName(*device.Get());
+                    d.isDefault = d.id == defaultId;
+                    if (d.id.isNotEmpty())
+                        devices.push_back(d);
+                }
+            }
+        }
+    }
+    if (coInit == S_OK || coInit == S_FALSE)
+        CoUninitialize();
+    return devices;
+}
 } // namespace sampler::platform

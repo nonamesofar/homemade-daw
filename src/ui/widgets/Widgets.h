@@ -1,6 +1,7 @@
 #pragma once
 
 #include "WidgetMath.h"
+#include "ui/look/Theme.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -17,6 +18,9 @@ class ToggleButton : public juce::Button
 public:
     explicit ToggleButton(const juce::String& label);
     void paintButton(juce::Graphics&, bool highlighted, bool down) override;
+
+    /** The colour of the button while it is on. */
+    juce::Colour litColour = theme::accent;
 };
 
 /** A row of exclusive choices (Session | Arrange). */

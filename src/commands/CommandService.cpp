@@ -104,8 +104,24 @@ void CommandService::recordChange(bool sameStep)
     position = depth;
 }
 
+void CommandService::refuse()
+{
+    if (onRefused)
+        onRefused("Stop recording first");
+}
+
+bool CommandService::refuseWhileRecording(const Command& command)
+{
+    if (! recordingLock || command.allowedWhileRecording())
+        return false;
+    refuse();
+    return true;
+}
+
 void CommandService::apply(Command& command)
 {
+    if (refuseWhileRecording(command))
+        return;
     if (gestureOpen)
     {
         update(command);
@@ -138,6 +154,8 @@ void CommandService::begin(const juce::String& name)
 
 void CommandService::update(Command& command)
 {
+    if (refuseWhileRecording(command))
+        return;
     if (! gestureOpen)
     {
         apply(command);
@@ -195,13 +213,18 @@ void CommandService::check(const juce::String& commandName)
     }
 }
 
-bool CommandService::canUndo() const { return ! gestureOpen && context.undo.canUndo(); }
-bool CommandService::canRedo() const { return ! gestureOpen && context.undo.canRedo(); }
+bool CommandService::canUndo() const { return ! gestureOpen && ! recordingLock && context.undo.canUndo(); }
+bool CommandService::canRedo() const { return ! gestureOpen && ! recordingLock && context.undo.canRedo(); }
 juce::String CommandService::undoName() const { return context.undo.getUndoDescription(); }
 juce::String CommandService::redoName() const { return context.undo.getRedoDescription(); }
 
 void CommandService::undo()
 {
+    if (recordingLock)
+    {
+        refuse();
+        return;
+    }
     if (! canUndo())
         return;
     context.undo.undo();
@@ -212,6 +235,11 @@ void CommandService::undo()
 
 void CommandService::redo()
 {
+    if (recordingLock)
+    {
+        refuse();
+        return;
+    }
     if (! canRedo())
         return;
     context.undo.redo();

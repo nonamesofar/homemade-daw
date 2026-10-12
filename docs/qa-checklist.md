@@ -31,3 +31,45 @@ Build the 16-bar, 4-track arrangement of `concepts/project/Arrangement.dc.html`:
 - [ ] Save, quit, reopen: everything is back and plays the same. Delete a decoded WAV from `audio/`, reopen: that clip is drawn as missing and silent, one message names the file.
 - [ ] Render with `sampler-cli render Demo.sdaw %TEMP%\demo.wav`; play it: it sounds like the app, without the click.
 - [ ] `ctest --preset windows-msvc-debug -L golden` passes; listen once to `tests/golden/*.wav` (they are what the golden tests compare against).
+
+## M2b Recording
+
+**Last run:** _not yet_
+
+Needs a browser with a video that has sound (YouTube) and the app built in release. Unless a step says otherwise, the tracks are on their default input, System audio of the Windows default playback device.
+
+**D1: arm a track and record System audio**
+
+- [ ] Start the app. Track 1 shows "In: System (<your speakers>)". Click R: it lights (red). Ctrl+click R on a second track: both are lit; a plain click on R of one track disarms the others.
+- [ ] Play the video, put the playhead at bar 3, press Ctrl+R: the song starts at bar 3 and the Record button lights. After a few bars press Ctrl+R again: playback goes on, a clip appears on track 1 from bar 3 (the part before the video's first sound is cut), and a sound named "<track> <date> <time>" is under Recordings; it plays the video. Hover it in the browser: "Recorded from System audio (...)".
+- [ ] Record again over the middle of that clip: the old clip is split around the new take. Ctrl+Z restores it in one step (the Edit menu says "Undo Record take"), Ctrl+Y brings the take back.
+- [ ] Disarm everything and press Ctrl+R: a message says to arm a track, nothing plays.
+- [ ] During a recording press Delete on a clip: refused with a message. Move a volume fader: it works. Ctrl+Z is refused.
+- [ ] Save, reopen: the takes are there and play, no track is armed, track inputs are as you left them.
+
+**D2: resample Master and other tracks**
+
+- [ ] In a 4-track arrangement add a track "Resample", set its input to Master (click "In: ..." in its header), arm it, put the playhead at bar 1 and press Ctrl+R; stop after 4 bars: the new clip lines up with bar 1. Mute the other tracks and play: it sounds like the song, in time.
+- [ ] Set another track's input to Drums and arm it together with "Resample" (Ctrl+click): one recording gives both takes, one Ctrl+Z removes both. Ride the Drums fader while resampling: the take follows the fader.
+- [ ] Arm Bass (input Drums) together with Drums: Record is refused with a message.
+- [ ] Turn the loop on over bars 1 to 4 and record 8 bars: one 8-bar take.
+
+**D3: devices, leaving Sampler out, live display**
+
+- [ ] Play the arrangement and the video together, arm a System track and record: the take grows in red on the track with the video's waveform, the track meter moves, the song stays audible. Stop: the take contains only the video.
+- [ ] Pause the video while recording: after about 3 seconds "No sound is coming in (...)" appears on the growing take and goes away when the video plays again. After Stop the take shows "Finishing..." until it lands.
+- [ ] Set the input to another playback device (a headset): only what plays there is recorded.
+- [ ] Restart with `Sampler.exe --capture-no-exclusion` and record during playback: the song goes silent while recording, comes back after, and the take has no song in it.
+
+**D4: limits, failures, project actions**
+
+- [ ] Record a System take and disable the recorded device in Windows sound settings halfway: recording stops, the part so far is kept, a message says the device went away.
+- [ ] While recording choose Save As: refused with a message; choose Quit: the take is added and the app asks to save. In an untitled project record a take, then Save As "Grab": reopen it and the take plays.
+
+**Exit run**
+
+- [ ] Play a YouTube video, record 1 minute onto an armed track: it is in Recordings and a clip at the playhead, with no Sampler sound in it.
+- [ ] Resample 4 bars of the song from Master onto a new track: it lines up.
+- [ ] One 10-minute System take without dropouts (no "parts of the recording were lost" message).
+- [ ] `ctest --preset windows-msvc-debug -LE hardware` passes; `ctest --preset windows-msvc-debug -L hardware` passes on this machine.
+

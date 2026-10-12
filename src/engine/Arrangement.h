@@ -25,6 +25,8 @@ struct TrackInfo
     double pan = 0.0;      // -1 full left .. +1 full right
     bool mute = false;
     bool solo = false;
+    /** What the track records: "system:default", "system:<device id>", "master" or "track:<track id>". */
+    juce::String input = "system:default";
 };
 
 /** One clip. Positions in beats; the offset into the sound in seconds of the sound (clips play at native speed until M4). */
@@ -138,6 +140,8 @@ public:
     void setTrackMute(const juce::String& trackId, bool);
     void setTrackSolo(const juce::String& trackId, bool);
     void setMasterVolumeDb(double db);
+    /** Stores the track's recording input (a `sampler_input` property of the track; the default is not stored). */
+    void setTrackInput(const juce::String& trackId, const juce::String& input);
 
     /** Creates a clip on the track (stores `sampler_sourceId`, a relative file path and 3 ms declick fades). Empty id on failure. */
     juce::String createClip(const juce::String& trackId, const ClipSpec&);

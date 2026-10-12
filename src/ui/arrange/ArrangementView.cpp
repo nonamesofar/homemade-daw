@@ -47,9 +47,11 @@ TrackHeader::TrackHeader(ArrangementView& v) : view(v)
                     static_cast<juce::Component*>(&pan)})
         addAndMakeVisible(b);
 
-    armButton.setAlpha(0.4f);
-    armButton.setTooltip("Recording from inputs comes in a later version");
+    armButton.litColour = theme::record;
+    armButton.setClickingTogglesState(false);
+    armButton.setTooltip("Arm for recording; Ctrl+click arms several tracks");
     armButton.setWantsKeyboardFocus(false);
+    armButton.onClick = [this] { view.armClicked(info.id, juce::ModifierKeys::getCurrentModifiers().isCommandDown()); };
     muteButton.setWantsKeyboardFocus(false);
     soloButton.setWantsKeyboardFocus(false);
     muteButton.setTooltip("Mute (M)");
@@ -115,6 +117,7 @@ void TrackHeader::setTrack(const engine::TrackInfo& track, bool isSelected)
 {
     info = track;
     selected = isSelected;
+    syncRecordingState();
     muteButton.setToggleState(track.mute, juce::dontSendNotification);
     soloButton.setToggleState(track.solo, juce::dontSendNotification);
     if (! volume.isDragging())
@@ -125,6 +128,14 @@ void TrackHeader::setTrack(const engine::TrackInfo& track, bool isSelected)
 }
 
 juce::Rectangle<int> TrackHeader::nameArea() const { return {34, 8, getWidth() - 34 - 58, 24}; }
+juce::Rectangle<int> TrackHeader::inputArea() const { return {16, 38, getWidth() - 16 - 26, 20}; }
+
+void TrackHeader::syncRecordingState()
+{
+    inputLabelText = view.inputLabel(info);
+    armButton.setToggleState(view.isArmed(info.id), juce::dontSendNotification);
+    repaint();
+}
 juce::Rectangle<int> TrackHeader::meterArea() const { return {getWidth() - 12, 10, 5, getHeight() - 20}; }
 
 void TrackHeader::resized()
@@ -163,6 +174,11 @@ void TrackHeader::paint(juce::Graphics& g)
         g.drawText(info.name, nameArea(), juce::Justification::centredLeft, true);
     }
 
+    // What the track records, under the name; click opens the input menu.
+    g.setColour(theme::muted);
+    g.setFont(Fonts::sans(12.0f));
+    g.drawText(inputLabelText + "  " + juce::String::charToString(0x25be), inputArea(), juce::Justification::centredLeft, true);
+
     // Meter: the falling peak, the RMS as a darker inner bar, the held peak as a line.
     const auto m = meterArea().toFloat();
     g.setColour(theme::background);
@@ -191,6 +207,11 @@ void TrackHeader::pushLevel(const engine::LevelReading& reading, double elapsedM
 
 void TrackHeader::mouseDown(const juce::MouseEvent& e)
 {
+    if (! e.mods.isPopupMenu() && inputArea().contains(e.getPosition()))
+    {
+        view.showInputMenu(info.id);
+        return;
+    }
     view.context().selection.selectHeader(info.id);
     view.headers().repaint();
     for (int i = 0; i < view.headers().numHeaders(); ++i)
@@ -587,6 +608,103 @@ juce::Rectangle<int> TimelineLanes::boundsOfClip(const juce::String& clipId) con
     return {};
 }
 
+/** The growing takes of a recording: red clips from where the take starts to what has been recorded, with the waveform so far. */
+void TimelineLanes::paintLiveTakes(juce::Graphics& g)
+{
+    if (! view.context().liveTakes)
+        return;
+    const auto takes = view.context().liveTakes();
+    if (takes.empty())
+        return;
+
+    const auto& layout = view.layout();
+    const auto& vp = view.viewport();
+    const auto& arrangement = view.context().arrangement;
+    const auto width = static_cast<float>(getWidth());
+    const double pixelsPerSecond = vp.pixelsPerBeat * arrangement.tempo() / 60.0;
+
+    for (const auto& take : takes)
+        for (const auto& id : take.trackIds)
+        {
+            const auto t = view.trackIndexOf(id);
+            if (t < 0)
+                continue;
+            const auto top = layout.trackTop(t) - vp.scrollY;
+            if (top + layout.trackHeight < 0 || top > getHeight())
+                continue;
+
+            const auto beatStart = arrangement.secondsToBeats(take.startSeconds);
+            const auto x0 = static_cast<float>(vp.beatToX(beatStart));
+            const auto x1 = std::max(x0 + 2.0f, static_cast<float>(vp.beatToX(arrangement.secondsToBeats(take.startSeconds + take.lengthSeconds))));
+            if (x1 < 0.0f || x0 > width)
+                continue;
+            const juce::Rectangle<float> r(x0, static_cast<float>(top) + static_cast<float>(layout.clipInset), x1 - x0,
+                                           static_cast<float>(layout.trackHeight - 2 * layout.clipInset));
+
+            // The clip body and its waveform are written straight into a small picture: a thousand one-pixel columns
+            // cost far less that way than as drawing calls (four growing takes must paint in under 2 ms).
+            const auto box = r.toNearestInt();
+            const auto visible = box.getIntersection(juce::Rectangle<int>(0, box.getY(), getWidth(), box.getHeight()));
+            if (visible.isEmpty())
+                continue;
+            juce::Image picture(juce::Image::ARGB, visible.getWidth(), visible.getHeight(), false);
+            {
+                juce::Image::BitmapData pixels(picture, juce::Image::BitmapData::writeOnly);
+                const auto body = theme::background.interpolatedWith(theme::record, 0.22f).getPixelARGB();
+                const auto ink = theme::record.getPixelARGB();
+                for (int y = 0; y < pixels.height; ++y)
+                {
+                    auto* row = reinterpret_cast<juce::PixelARGB*>(pixels.getLinePointer(y));
+                    for (int x = 0; x < pixels.width; ++x)
+                        row[x].set(body);
+                }
+
+                if (take.writer != nullptr && take.started)
+                {
+                    // One column per pixel over the lowest and highest of the buckets that fall into it.
+                    const auto& writer = *take.writer;
+                    const double bucketSeconds = static_cast<double>(writer.bucketFramesPerBucket()) / writer.options().sampleRate;
+                    const int count = writer.numBuckets();
+                    const auto mid = static_cast<float>(pixels.height) * 0.5f;
+                    const auto half = mid - 3.0f;
+                    for (int px = 0; px < pixels.width; ++px)
+                    {
+                        const auto laneX = static_cast<double>(visible.getX() + px);
+                        const auto s0 = (laneX - x0) / pixelsPerSecond;
+                        const auto s1 = (laneX + 1.0 - x0) / pixelsPerSecond;
+                        const int b0 = std::max(0, static_cast<int>(s0 / bucketSeconds));
+                        const int b1 = std::min(count, std::max(b0 + 1, static_cast<int>(s1 / bucketSeconds)));
+                        if (b0 >= count)
+                            break;
+                        const int stride = std::max(1, (b1 - b0) / 8);
+                        float lo = 0.0f, hi = 0.0f;
+                        for (int b = b0; b < b1; b += stride)
+                        {
+                            const auto m = writer.bucketAt(b);
+                            lo = std::min(lo, m.min);
+                            hi = std::max(hi, m.max);
+                        }
+                        const auto yTop = std::clamp(static_cast<int>(mid - std::min(1.0f, hi) * half), 0, pixels.height - 1);
+                        const auto yBottom = std::clamp(std::max(yTop + 1, static_cast<int>(mid - std::max(-1.0f, lo) * half)), 1, pixels.height);
+                        for (int y = yTop; y < yBottom; ++y)
+                            reinterpret_cast<juce::PixelARGB*>(pixels.getLinePointer(y))[px].set(ink);
+                    }
+                }
+            }
+            g.drawImageAt(picture, visible.getX(), visible.getY());
+            g.setColour(theme::record);
+            g.drawRect(box, 1);
+
+            if (take.warning.isNotEmpty())
+            {
+                g.setColour(theme::text);
+                g.setFont(Fonts::sans(12.0f, Fonts::Weight::semiBold));
+                const auto textArea = r.reduced(8.0f, 4.0f).withWidth(std::max(r.getWidth() - 16.0f, 260.0f));
+                g.drawText(take.warning, textArea.toNearestInt(), juce::Justification::topLeft, false);
+            }
+        }
+}
+
 void TimelineLanes::paint(juce::Graphics& g)
 {
     const auto& layout = view.layout();
@@ -661,6 +779,8 @@ void TimelineLanes::paint(juce::Graphics& g)
             paintClip(g, *clip, juce::Rectangle<double>(rect.x, rect.y - vp.scrollY, rect.w, rect.h).toFloat(), view.colourOfTrack(p.track),
                       false, true);
         }
+
+    paintLiveTakes(g);
 
     // Files being imported onto the timeline: grey boxes, one bar each.
     if (view.context().placeholders)
@@ -1158,9 +1278,124 @@ void ArrangementView::refresh()
     std::vector<juce::String> trackIds;
     for (const auto& t : tracks)
         trackIds.push_back(t.id);
+    if (ctx.arms != nullptr)
+        ctx.arms->prune(trackIds); // armed tracks that were deleted are forgotten
+    if (ctx.playbackDevices && ! devicesLoaded)
+    {
+        devices = ctx.playbackDevices(); // listing devices takes a moment: not on every edit (tick looks again now and then)
+        devicesLoaded = true;
+    }
     ctx.selection.retainTrack(trackIds);
     headerList.rebuild();
     viewChanged();
+}
+
+//==============================================================================
+std::vector<ArrangementView::InputChoice> ArrangementView::inputChoices(const engine::TrackInfo& track) const
+{
+    std::vector<InputChoice> choices;
+    bool defaultListed = false;
+    for (const auto& d : devices)
+    {
+        if (d.isDefault)
+        {
+            choices.push_back({"system:default", "System audio (" + d.name + ")", track.input == "system:default"});
+            defaultListed = true;
+        }
+    }
+    if (! defaultListed)
+        choices.push_back({"system:default", "System audio (default device)", track.input == "system:default"});
+    for (const auto& d : devices)
+        if (! d.isDefault)
+            choices.push_back({"system:" + d.id, "System audio (" + d.name + ")", track.input == "system:" + d.id});
+    choices.push_back({"master", "Master", track.input == "master"});
+    for (const auto& other : tracks)
+        if (other.id != track.id)
+            choices.push_back({"track:" + other.id, other.name, track.input == "track:" + other.id});
+    return choices;
+}
+
+juce::String ArrangementView::inputLabel(const engine::TrackInfo& track) const
+{
+    const auto defaultDevice = [this]
+    {
+        for (const auto& d : devices)
+            if (d.isDefault)
+                return d.name;
+        return juce::String();
+    };
+    const auto system = [](const juce::String& device) { return device.isEmpty() ? juce::String("In: System") : "In: System (" + device + ")"; };
+
+    if (track.input == "master")
+        return "In: Master";
+    if (track.input.startsWith("track:"))
+    {
+        const auto id = track.input.fromFirstOccurrenceOf(":", false, false);
+        for (const auto& other : tracks)
+            if (other.id == id)
+                return "In: " + other.name;
+        return system(defaultDevice());
+    }
+    if (track.input.startsWith("system:") && track.input != "system:default")
+    {
+        const auto id = track.input.fromFirstOccurrenceOf(":", false, false);
+        for (const auto& d : devices)
+            if (d.id == id)
+                return system(d.name);
+        return system(defaultDevice()) + ", chosen device missing"; // it records the default device instead
+    }
+    return system(defaultDevice());
+}
+
+void ArrangementView::showInputMenu(const juce::String& trackId)
+{
+    const auto index = trackIndexOf(trackId);
+    if (index < 0)
+        return;
+    if (ctx.playbackDevices)
+        devices = ctx.playbackDevices(); // the devices as they are now
+    const auto track = tracks[static_cast<size_t>(index)];
+    const auto choices = inputChoices(track);
+    juce::PopupMenu menu;
+    bool separated = false;
+    for (size_t i = 0; i < choices.size(); ++i)
+    {
+        if (! separated && choices[i].input == "master")
+        {
+            menu.addSeparator();
+            separated = true;
+        }
+        menu.addItem(static_cast<int>(i) + 1, choices[i].label, true, choices[i].ticked);
+    }
+    juce::Component::SafePointer<ArrangementView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(headerList.headerFor(trackId)), [safe, trackId, choices](int result) {
+        if (safe != nullptr && result > 0)
+            safe->setTrackInput(trackId, choices[static_cast<size_t>(result - 1)].input);
+    });
+}
+
+void ArrangementView::setTrackInput(const juce::String& trackId, const juce::String& input)
+{
+    commands::SetTrackInput command(trackId, input);
+    applyCommand(command, false);
+}
+
+void ArrangementView::armClicked(const juce::String& trackId, bool toggle)
+{
+    if (ctx.arms == nullptr)
+        return;
+    if (toggle)
+        ctx.arms->toggle(trackId);
+    else
+        ctx.arms->arm(trackId);
+    syncRecordingState();
+}
+
+void ArrangementView::syncRecordingState()
+{
+    for (int i = 0; i < headerList.numHeaders(); ++i)
+        if (auto* h = headerList.header(i))
+            h->syncRecordingState();
 }
 
 int ArrangementView::trackIndexOf(const juce::String& trackId) const
@@ -1222,9 +1457,47 @@ void ArrangementView::tick(double elapsedMs)
     const auto x = view.beatToX(ctx.transport.positionBeats());
     playheadOverlay.setPlayheadX(x >= -2.0 && x <= playheadOverlay.getWidth() + 2.0 ? std::optional<float>(static_cast<float>(x))
                                                                                     : std::nullopt);
+    std::map<juce::String, engine::LevelReading> incoming; // the input level of tracks that are recording
+    bool anyTake = false;
+    if (ctx.liveTakes)
+        for (const auto& take : ctx.liveTakes())
+        {
+            anyTake = true;
+            if (take.writer == nullptr)
+                continue;
+            const auto peak = std::max(take.writer->takePeak(), 1.0e-5f);
+            engine::LevelReading reading;
+            reading.peakDb[0] = reading.peakDb[1] = juce::Decibels::gainToDecibels(peak);
+            reading.over = peak > 1.0f;
+            for (const auto& id : take.trackIds)
+                incoming[id] = reading;
+        }
     for (int i = 0; i < headerList.numHeaders(); ++i)
         if (auto* h = headerList.header(i))
-            h->pushLevel(ctx.meters.readTrack(h->trackId()), elapsedMs);
+        {
+            const auto live = incoming.find(h->trackId());
+            h->pushLevel(live != incoming.end() ? live->second : ctx.meters.readTrack(h->trackId()), elapsedMs);
+        }
+    if (anyTake || hadLiveTakes)
+        lanesComponent.repaint();
+    hadLiveTakes = anyTake;
+
+    // A headset plugged in or the default device changed: the input labels follow within a few seconds of the song being stopped.
+    // (Not while the song plays: listing the devices takes a moment and would drop a frame.)
+    if (ctx.playbackDevices && (deviceCheckMs += elapsedMs) > 5000.0 && ! anyTake && ! ctx.transport.isPlaying())
+    {
+        deviceCheckMs = 0.0;
+        auto now = ctx.playbackDevices();
+        const auto same = now.size() == devices.size()
+                          && std::equal(now.begin(), now.end(), devices.begin(), [](const auto& a, const auto& b) {
+                                 return a.id == b.id && a.name == b.name && a.isDefault == b.isDefault;
+                             });
+        if (! same)
+        {
+            devices = std::move(now);
+            syncRecordingState();
+        }
+    }
 
     // Reverse renders finish without an edit: look again now and then while one is pending.
     if (anyRendering && (renderPollMs += elapsedMs) > 250.0)

@@ -275,6 +275,50 @@ private:
     juce::Colour colour;
 };
 
+/** Sets what the track records (see engine::TrackInfo::input). A track cannot record itself: that does nothing. */
+class SetTrackInput final : public ArrangeCommand
+{
+public:
+    SetTrackInput(juce::String id, juce::String newInput) : trackId(std::move(id)), input(std::move(newInput)) {}
+    juce::String name() const override { return "Set track input"; }
+    void perform(ModelContext&) override;
+
+private:
+    juce::String trackId, input;
+};
+
+/** One finished take of a recording. */
+struct Take
+{
+    juce::String trackId;
+    juce::String name;         // "<track name> <date> <time>"
+    juce::String relativePath; // inside the bundle: audio/recordings/rec-....wav
+    double sampleRate = 0.0;
+    int channels = 0;
+    juce::int64 frames = 0;
+    double startBeat = 0.0;
+    juce::String recordedFrom; // shown in the browser tooltip
+    juce::String recordedAt;   // ISO 8601
+};
+
+/**
+    Adds the takes of one recording as sounds (category Recording) and places each as a clip on its track at its start
+    beat, with the no-overlap rule ("Record take" / "Record N takes"). The files are used where they are.
+*/
+class AddTakes final : public ArrangeCommand
+{
+public:
+    explicit AddTakes(std::vector<Take> recorded) : takes(std::move(recorded)) {}
+    juce::String name() const override { return takes.size() == 1 ? "Record take" : "Record " + juce::String(static_cast<int>(takes.size())) + " takes"; }
+    void perform(ModelContext&) override;
+    /** Indexes (into the takes given) of the takes that could not be added: the track is gone, no frames, or the sound was refused. */
+    const std::vector<size_t>& skippedTakes() const { return skipped; }
+
+private:
+    std::vector<Take> takes;
+    std::vector<size_t> skipped;
+};
+
 /** Volume (dB), pan (-1..1), mute, solo, or exclusive solo (only this track soloed). An empty track id is the master. */
 class SetTrackParam final : public ArrangeCommand
 {
@@ -292,6 +336,7 @@ public:
     juce::String name() const override;
     void perform(ModelContext&) override;
     juce::String coalesceKey() const override;
+    bool allowedWhileRecording() const override { return true; }
 
 private:
     juce::String trackId;

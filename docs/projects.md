@@ -7,6 +7,7 @@ Name.sdaw/
   project.tracktionedit     the project file (XML); Sampler's own data is the <SAMPLER> section inside it
   audio/
     originals/              exact copies of the files you imported
+    recordings/             the takes you recorded onto tracks (rec-<date>-<time>-<n>.wav), used as they are
     <name>-<hash>.wav       the decoded working copies the app plays (32-bit float WAV)
   cache/                    disposable: waveform pictures, reversed-clip renders and other generated files
 ```
@@ -39,6 +40,15 @@ Saving keeps the whole arrangement inside `project.tracktionedit`:
 
 Not saved: the playhead, selection, zoom and scroll, and the undo history. Play, stop, moving the playhead, looping on/off, the metronome and the snap value are not edits: they do not mark the project as changed (the window title shows `*` only after an undoable edit, an undo or a redo that moved the history away from the last save).
 
+## Recording (since M2b)
+
+You arm a track (R in its header), choose what it records (its **input**) and press Record. Each take is written to `audio/recordings/rec-<date>-<time>-<n>.wav` (32-bit float WAV) while you record, then added to the project as a sound in the category Recording and as a clip on the armed track. Takes are not copied again into `audio/originals/` and are never changed after they are finished.
+
+- A track's input is saved with the project: System audio on the Windows default playback device (the default), on a named device, Master (the whole mix), or another track.
+- Which tracks are armed is not saved. A recording that is running when you save is not in the file: its take is added when you stop.
+- A take recorded in an untitled project is inside the untitled folder and moves with the first Save. Save As is refused while recording.
+- If a recorded device is not there when you reopen a project, the track records the default device instead and its header says so.
+
 ## The cache folder
 
 `cache/` holds only things the app can make again (waveform pictures and the renders of reversed clips now; stretched renders and similar later). You can delete it while the app is closed; the next time you open the project it fills up again and nothing is lost.
@@ -47,4 +57,4 @@ Not saved: the playhead, selection, zoom and scroll, and the undo history. Play,
 
 The `<SAMPLER schemaVersion="1">` section has one `SOURCE` node per imported sound (id, name, relative paths of the original and the decoded copy, content hash, sample rate, channels, frames, category). All paths are relative to the bundle. A newer `schemaVersion` than the app knows is refused; older ones are upgraded in memory by the steps in `src/model/Migrations.cpp` (none yet).
 
-Arrangement data is stored by Tracktion (tracks, clips, tempo, transport) with our extras as `sampler_*` properties on its nodes: a clip's `sampler_sourceId` names its `SOURCE`. Everything added in M2 is optional, so the schema version stays 1. Dirty state comes from the undo history (`CommandService::historyToken`), not from watching the file.
+Arrangement data is stored by Tracktion (tracks, clips, tempo, transport) with our extras as `sampler_*` properties on its nodes: a clip's `sampler_sourceId` names its `SOURCE`. Everything added in M2 and M2b is optional, so the schema version stays 1. M2b adds: the track property `sampler_input` on Tracktion's track node (`system:default` is the default and is not stored; `system:<endpoint id>`, `master`, `track:<track item id>`), and on a SOURCE node of a take the optional `recordedFrom` (for example `System audio (Speakers)`, `Master` or a track name) and `recordedAt` (ISO 8601 local time). A take's `original` and `decoded` are the same `audio/recordings/...` path. While a recording runs, the edit holds taps (plugins of type `samplerTap`, marked `sampler_tap`) on the tapped tracks or the master; they are added and removed without the undo manager and `saveEditAtomically` leaves them out of the file. Dirty state comes from the undo history (`CommandService::historyToken`), not from watching the file.

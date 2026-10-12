@@ -131,13 +131,20 @@ double Transport::positionBeats() const
     return impl->edit.tempoSequence.toBeats(tracktion::TimePosition::fromSeconds(impl->positionSeconds())).inBeats();
 }
 
-void Transport::locateBeats(double beats)
+bool Transport::locateBeats(double beats)
 {
+    if (locateLocked)
+    {
+        if (onLocateRefused)
+            onLocateRefused();
+        return false;
+    }
     const auto t = impl->edit.tempoSequence.toTime(tracktion::BeatPosition::fromBeats(std::max(0.0, beats)));
     impl->applyLoop(t.inSeconds()); // before the jump, so a jump into the loop is not clipped by an old range
     impl->transport().setPosition(t);
     if (impl->transport().isPlaying())
         impl->reapplyLoopTicks = 2;
+    return true;
 }
 
 bool Transport::isLooping() const { return impl->loopOn(); }

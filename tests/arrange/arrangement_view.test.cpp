@@ -99,6 +99,25 @@ TEST_CASE("header: Play lights only when the transport really plays; typing a po
     CHECK(transport.positionBeats() == Approx(0.0));
 }
 
+TEST_CASE("header: a second Stop while a recording runs does not try to move the locked playhead", "[arrange][view][transport]")
+{
+    ViewHarness h("view-stop-recording");
+    auto& transport = h.f.project->transport();
+    int refused = 0;
+    transport.onLocateRefused = [&refused] { ++refused; };
+    transport.setLocateLocked(true);
+    bool recording = true;
+    ui::HeaderContext header{h.f.project->arrangement(), transport, h.f.project->levelMeters(), *h.f.commands, h.selection,
+                             [&h] { return h.snap; }, [&h](ui::SnapValue v) { h.snap = v; }, [] {}, [&recording] { return recording; }};
+    ui::HeaderBar bar(header);
+    bar.stopPressed();
+    CHECK(refused == 0);
+    recording = false;
+    transport.setLocateLocked(false);
+    bar.stopPressed();
+    CHECK(refused == 0);
+}
+
 TEST_CASE("selecting with clicks and a marquee across two tracks", "[arrange][view][selection]")
 {
     ViewHarness h("view-select");
@@ -320,12 +339,7 @@ TEST_CASE("header controls: volume drag is one step, double-click resets, Mod+cl
     CHECK_FALSE(h.f.arrangement().tracks()[1].solo);
     CHECK(h.f.arrangement().tracks()[2].solo);
 
-    // R is shown but does nothing.
-    const auto steps = h.f.project->undoManager().getUndoDescriptions().size();
-    h.view->headers().header(0)->armButton.triggerClick();
-    juce::MessageManager::getInstance()->runDispatchLoopUntil(30);
-    CHECK(h.f.project->undoManager().getUndoDescriptions().size() == steps);
-    CHECK(h.view->headers().header(0)->armButton.getTooltip().contains("later"));
+    // R arms: see the arm tests below.
 }
 
 TEST_CASE("loop bar: draw a range, drag its end, one undo step each", "[arrange][view][loop]")

@@ -7,6 +7,7 @@
 #include "engine/ProjectEdit.h"
 #include "io/ImportService.h"
 #include "io/JobRegistry.h"
+#include "RecordingController.h"
 #include "ui/browser/BrowserPanel.h"
 
 #include <juce_events/juce_events.h>
@@ -22,6 +23,10 @@ struct AppOptions
     /** Developer flag `--audio-start-delay <ms>`: holds back the audio-ready signal. */
     int audioStartDelayMs = 0;
     juce::File untitledRoot = ProjectEdit::defaultUntitledRoot();
+    /** Developer flag `--capture-no-exclusion`: System audio takes behave as if Sampler could not be left out of them. */
+    bool captureNoExclusion = false;
+    /** Tests: replaces the parts of the recording environment that need hardware (capture sources, device list, clock). */
+    std::function<void(RecordingEnv&)> adjustRecordingEnv;
 };
 
 /**
@@ -46,6 +51,7 @@ public:
     commands::CommandService& commandService() { return *commands; }
     io::JobRegistry& jobs() { return registry; }
     io::ImportService& importer() { return *importService; }
+    RecordingController& recording() { return *recorder; }
 
     //==============================================================================
     void importFiles(const juce::Array<juce::File>& files);
@@ -71,6 +77,8 @@ public:
 
     /** A message for the user: text and whether it is an error. */
     std::function<void(const juce::String& text, bool isError)> onToast;
+    /** A recording was added to the project: select these clips. */
+    std::function<void(const std::vector<juce::String>& clipIds)> onTakesAdded;
     /** An import found the sound already in the project: show that row. */
     std::function<void(const juce::String& sourceId)> onSelectSource;
 
@@ -118,11 +126,14 @@ private:
     void closeProject();
     /** Runs `proceed` at once if the project is clean, else after the user chose Save or Discard. */
     void guardUnsaved(std::function<void()> proceed);
+    void askAboutUnsaved(std::function<void()> proceed);
     /** Saves (asking for a location if untitled), then runs `next` if it worked. */
     void saveThen(std::function<void()> next);
     void saveAsThen(std::function<void()> next);
     /** True (after a toast) while an import runs: New, Open and Quit would cancel it. */
     bool refuseWhileImporting();
+    /** True (after a toast) while a recording runs or is being finished: Save As would move the folder it writes into. */
+    bool refuseWhileRecording();
 
     EngineHost host;
     std::unique_ptr<ProjectEdit> edit;
@@ -131,6 +142,7 @@ private:
     std::unique_ptr<io::ImportService> importService;
     std::unique_ptr<Audition> audition;
     AuditionRequestQueue queue;
+    std::unique_ptr<RecordingController> recorder;
     juce::String startError;
     juce::File untitledRoot;
     int generation = 0;

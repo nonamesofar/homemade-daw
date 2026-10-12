@@ -1,6 +1,7 @@
 #include "ProjectEdit.h"
 
 #include "Arrangement.h"
+#include "EditTakeRecorder.h"
 #include "EngineHost.h"
 #include "LevelMeters.h"
 #include "Transport.h"
@@ -52,6 +53,7 @@ struct ProjectEdit::Impl
     ~Impl()
     {
         // The facades refer to the edit: they go first.
+        recorder.reset();
         meters.reset();
         transport.reset();
         arrangement.reset();
@@ -65,6 +67,7 @@ struct ProjectEdit::Impl
         arrangement->addDefaultTrackIfEmpty();
         transport = std::make_unique<engine::Transport>(*edit, host);
         meters = std::make_unique<engine::LevelMeters>(*edit);
+        recorder = std::make_unique<engine::EditTakeRecorder>(*edit);
         for (const auto& clip : arrangement->clips())
         {
             if (! clip.missing)
@@ -82,6 +85,7 @@ struct ProjectEdit::Impl
     std::unique_ptr<engine::Arrangement> arrangement;
     std::unique_ptr<engine::Transport> transport;
     std::unique_ptr<engine::LevelMeters> meters;
+    std::unique_ptr<engine::EditTakeRecorder> recorder;
     juce::StringArray missing;
 };
 
@@ -98,6 +102,7 @@ std::unique_ptr<ProjectEdit> ProjectEdit::createUntitled(EngineHost& host, const
     const auto bundle = untitledRoot.getChildFile(juce::Uuid().toDashedString() + bundleExtension);
     auto impl = std::make_unique<Impl>(host, bundle, true);
     const auto fail = [&](const juce::String& reason) -> std::unique_ptr<ProjectEdit> {
+        impl->recorder.reset();
         impl->meters.reset();
         impl->transport.reset();
         impl->arrangement.reset();
@@ -263,6 +268,7 @@ void ProjectEdit::discardUntitled()
 {
     if (! impl->untitled)
         return;
+    impl->recorder.reset();
     impl->meters.reset();
     impl->transport.reset();
     impl->arrangement.reset();
@@ -275,6 +281,7 @@ engine::Arrangement& ProjectEdit::arrangement() { return *impl->arrangement; }
 const engine::Arrangement& ProjectEdit::arrangement() const { return *impl->arrangement; }
 engine::Transport& ProjectEdit::transport() { return *impl->transport; }
 engine::LevelMeters& ProjectEdit::levelMeters() { return *impl->meters; }
+engine::TakeRecorder& ProjectEdit::takeRecorder() { return *impl->recorder; }
 te::Edit& ProjectEdit::tracktionEdit() { return *impl->edit; }
 juce::StringArray ProjectEdit::missingFiles() const { return impl->missing; }
 juce::UndoManager& ProjectEdit::undoManager() { return impl->edit->getUndoManager(); }

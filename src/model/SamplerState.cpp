@@ -37,6 +37,10 @@ juce::ValueTree Source::create(const SourceData& data)
     node.setProperty(ids::channels, data.channels, nullptr);
     node.setProperty(ids::frames, data.frames, nullptr);
     node.setProperty(ids::category, toString(data.category), nullptr);
+    if (data.recordedFrom.isNotEmpty())
+        node.setProperty(ids::recordedFrom, data.recordedFrom, nullptr);
+    if (data.recordedAt.isNotEmpty())
+        node.setProperty(ids::recordedAt, data.recordedAt, nullptr);
     return node;
 }
 

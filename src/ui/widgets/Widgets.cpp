@@ -29,9 +29,9 @@ void ToggleButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
 {
     const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
     const bool on = getToggleState();
-    g.setColour(on ? theme::accent : (down || highlighted ? theme::selected : theme::raised));
+    g.setColour(on ? litColour : (down || highlighted ? theme::selected : theme::raised));
     g.fillRoundedRectangle(bounds, 5.0f);
-    g.setColour(on ? theme::accent : theme::border);
+    g.setColour(on ? litColour : theme::border);
     g.drawRoundedRectangle(bounds, 5.0f, 1.0f);
     g.setColour(on ? theme::background : theme::text);
     g.setFont(Fonts::sans(12.0f, Fonts::Weight::semiBold));

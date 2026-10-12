@@ -32,7 +32,11 @@ struct ViewHarness
                                        droppedFiles = files;
                                        droppedTarget = target;
                                    },
-                                   [] { return std::vector<ui::Placeholder>{}; }};
+                                   [] { return std::vector<ui::Placeholder>{}; },
+                                   &arms,
+                                   [this] { return devices; },
+                                   [this] { return live; },
+                                   [this] { return ! live.empty(); }};
         view = std::make_unique<ui::ArrangementView>(context);
         view->setSize(1200, 600);
         ui::HeaderContext header{p.arrangement(), p.transport(), p.levelMeters(), *f.commands, selection,
@@ -103,6 +107,9 @@ struct ViewHarness
 
     ArrangeFixture f;
     ui::SelectionModel selection;
+    ui::ArmState arms;
+    std::vector<ui::LiveTake> live;
+    std::vector<sampler::platform::PlaybackDevice> devices{{"dev-a", "Speakers", true}, {"dev-b", "Headset", false}};
     ui::SnapValue snap = ui::SnapValue::bar;
     std::unique_ptr<ui::ArrangementView> view;
     std::unique_ptr<ui::HeaderBar> headerBar;

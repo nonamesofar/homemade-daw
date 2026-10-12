@@ -23,6 +23,8 @@ SAMPLER_MODEL_ID(sampleRate);
 SAMPLER_MODEL_ID(channels);
 SAMPLER_MODEL_ID(frames);
 SAMPLER_MODEL_ID(category);
+SAMPLER_MODEL_ID(recordedFrom);
+SAMPLER_MODEL_ID(recordedAt);
 #undef SAMPLER_MODEL_ID
 } // namespace ids
 
@@ -53,6 +55,8 @@ struct SourceData
     int channels = 0;
     juce::int64 frames = 0;
     Category category = Category::loop;
+    juce::String recordedFrom; // takes only: "System audio (Speakers)", "Master" or a track name
+    juce::String recordedAt;   // takes only: ISO 8601 local time
 };
 
 /** Thin wrapper over one SOURCE node. Holds no state of its own; copies refer to the same node. */
@@ -77,6 +81,8 @@ public:
     int channels() const { return state[ids::channels]; }
     juce::int64 frames() const { return state[ids::frames]; }
     Category category() const { return categoryFromString(state[ids::category].toString()); }
+    juce::String recordedFrom() const { return state[ids::recordedFrom].toString(); }
+    juce::String recordedAt() const { return state[ids::recordedAt].toString(); }
     double lengthSeconds() const { return sampleRate() > 0.0 ? static_cast<double>(frames()) / sampleRate() : 0.0; }
 
     void setCategory(Category, juce::UndoManager*);

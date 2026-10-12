@@ -85,3 +85,14 @@ Reading the numbers: the whole beats path (analysis plus placement) is far cheap
 |---|---|---|
 | M2-a | A native-speed clip after a tempo change | Keeps its start beat and its length in seconds; its length in beats changes (120 -> 90 BPM: 2 s is 4 beats before, 3 after). `SetTempo` re-fixes overlaps in the same undo step. |
 | M2-b | Undo of the loop range written through the edit's UndoManager | Reaches the transport: `getLoopRange()` reads the restored value. No fallback node needed. |
+
+## M2b additions (task 1.1)
+
+| # | Check | Result |
+|---|---|---|
+| M2b-a | Master tap: a non-saved plugin at the end of the master plugin list | Passes. Its take equals the offline render of the same bars (difference under 1e-5, no offset). The edit file written by `saveEditAtomically` has no tap (the tap's XML is stripped), the undo history and `CommandService::historyToken()` do not move, and nothing is left in the edit after the tap is removed. The offline renderer pre-rolls about 0.5 s at negative edit times with `isPlaying` false and then true: the tap records only from time zero. (`tests/arrange/take_tap.test.cpp`) |
+| M2b-b | Track tap: the same plugin at the end of a track's list | Carries the track after its volume and pan (equals a render with the other tracks muted, pan 0.5 included). A muted track records silence, so the Muted source rule of the spec holds without extra code. `trackWaveDevice` was not used: it only delivers audio when the track is assigned as an input of another track, which edits the project. |
+| M2b-c | Real-time rules in the tap | 30 s of render with a Master and a track tap: zero allocations inside `TakeTapPlugin::applyToBuffer` and `TakeWriter::push*` (debug `operator new` count behind `RealtimeScope`). |
+| M2b-d | `GetStreamLatency` of loopback (build 19045, Jabra Link 380 headset) | 0.00 ms for endpoint loopback and for process loopback. |
+| M2b-e | A click written by a JUCE output callback, heard by endpoint loopback | 41.2 ms later (median of 10, min 40.7, max 41.4): used as the constant offset of System takes. (`CaptureProbe latency`) |
+| M2b-f | Process loopback follows the Windows default device | Not measured (needs two playback devices and a manual switch while recording). Process loopback is used only for the default device. |

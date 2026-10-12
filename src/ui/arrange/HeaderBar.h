@@ -24,6 +24,11 @@ struct HeaderContext
     SelectionModel& selection;
     std::function<SnapValue()> snap;
     std::function<void(SnapValue)> setSnap;
+    /** Record button and Mod+R; unset = recording is not available (the button is disabled). */
+    std::function<void()> toggleRecord;
+    std::function<bool()> isRecording;
+    /** The Stop button was pressed (optional): a recording that has not started the song yet ends. */
+    std::function<void()> stopPressed;
 };
 
 /** Stop, Play and Record buttons: drawn icons; Play is lit only while the transport really plays. */

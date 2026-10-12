@@ -1,5 +1,7 @@
 #include "EngineSetup.h"
 
+#include "TakeTapPlugin.h"
+
 #include <filesystem>
 #include <string>
 
@@ -65,6 +67,20 @@ bool replaceByRename(const juce::File& from, const juce::File& to)
     return false;
 }
 
+/** Removes the take taps (plugins marked `sampler_tap`) from the XML of an edit. */
+void removeTaps(juce::XmlElement& element)
+{
+    for (auto* child = element.getFirstChildElement(); child != nullptr;)
+    {
+        auto* next = child->getNextElement();
+        if (child->hasAttribute(engine::TakeTapPlugin::tapProperty.toString()))
+            element.removeChildElement(child, true);
+        else
+            removeTaps(*child);
+        child = next;
+    }
+}
+
 /** Input recording arrives at M8; until then no input device is opened. */
 class SamplerEngineBehaviour : public te::EngineBehaviour
 {
@@ -80,8 +96,10 @@ private:
 
 std::unique_ptr<te::Engine> makeEngine(const juce::String& appName, bool headless)
 {
-    return std::make_unique<te::Engine>(appName, std::make_unique<SamplerUIBehaviour>(),
-                                        std::make_unique<SamplerEngineBehaviour>(headless));
+    auto created = std::make_unique<te::Engine>(appName, std::make_unique<SamplerUIBehaviour>(),
+                                               std::make_unique<SamplerEngineBehaviour>(headless));
+    created->getPluginManager().createBuiltInType<engine::TakeTapPlugin>();
+    return created;
 }
 
 bool saveEditAtomically(te::Edit& edit, const std::function<void(const juce::File&)>& beforeCommit)
@@ -97,6 +115,7 @@ bool saveEditAtomically(te::Edit& edit, const std::function<void(const juce::Fil
     const auto xml = edit.state.createXml();
     if (xml == nullptr)
         return false;
+    removeTaps(*xml); // a recording that runs during the save is not part of the file
 
     editFile.getParentDirectory().createDirectory();
     juce::TemporaryFile temporary(editFile); // next to the edit file, so the swap stays on one volume

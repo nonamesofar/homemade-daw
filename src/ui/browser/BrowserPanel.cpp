@@ -258,6 +258,11 @@ void BrowserPanel::paintListBoxItem(int row, juce::Graphics& g, int width, int h
     g.drawText(item.name, area, juce::Justification::centredLeft, true);
 }
 
+juce::String BrowserPanel::getTooltipForRow(int row)
+{
+    return juce::isPositiveAndBelow(row, static_cast<int>(currentRows.size())) ? currentRows[static_cast<size_t>(row)].tooltip() : juce::String();
+}
+
 juce::var BrowserPanel::getDragSourceDescription(const juce::SparseSet<int>& rowsToDrag)
 {
     if (rowsToDrag.isEmpty())
@@ -287,9 +292,10 @@ void BrowserPanel::showCategoryMenu(const BrowserRow& item)
     juce::PopupMenu menu;
     menu.addItem(1, "Loop", true, item.category == model::Category::loop);
     menu.addItem(2, "One-shot", true, item.category == model::Category::oneShot);
+    menu.addItem(3, "Recording", true, item.category == model::Category::recording);
     menu.showMenuAsync({}, [this, id = item.id](int choice) {
         if (choice != 0 && onCategoryChosen)
-            onCategoryChosen(id, choice == 1 ? model::Category::loop : model::Category::oneShot);
+            onCategoryChosen(id, choice == 1 ? model::Category::loop : choice == 2 ? model::Category::oneShot : model::Category::recording);
     });
 }
 } // namespace sampler::ui

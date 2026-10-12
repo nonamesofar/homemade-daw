@@ -3,6 +3,7 @@
 #include "engine/Arrangement.h"
 #include "engine/LevelMeters.h"
 #include "engine/Transport.h"
+#include "RecordingPolicy.h"
 #include "model/SamplerState.h"
 
 #include <algorithm>
@@ -24,6 +25,44 @@ AppController::AppController(AppOptions options)
         sendChangeMessage();
     };
 
+    RecordingEnv env;
+    env.arrangement = [this] { return edit != nullptr ? &edit->arrangement() : nullptr; };
+    env.commands = [this] { return commands.get(); };
+    env.bundleDir = [this] { return edit != nullptr ? edit->bundleDir() : juce::File(); };
+    env.isPlaying = [this] { return edit != nullptr && edit->transport().isPlaying(); };
+    env.isPlayPending = [this] { return edit != nullptr && edit->transport().isPlayPending(); };
+    env.positionBeats = [this] { return edit != nullptr ? edit->transport().positionBeats() : 0.0; };
+    env.play = [this] {
+        if (edit != nullptr)
+            edit->transport().play();
+    };
+    env.prepareForPlayback = [this] {
+        if (edit != nullptr && host.isAudioReady())
+            edit->prepareForPlayback();
+    };
+    env.setOutputMuted = [this](bool muted) { host.setOutputMuted(muted); };
+    env.outputDeviceName = [this] { return host.currentAudioDeviceName(); };
+    env.outputDeviceType = [this] { return host.currentAudioDeviceType(); };
+    env.setLocateLocked = [this](bool locked) {
+        if (edit != nullptr)
+            edit->transport().setLocateLocked(locked);
+    };
+    env.startRefusal = [this] {
+        return importService != nullptr && importService->isBusy() ? juce::String("Wait for the import to finish") : juce::String();
+    };
+    env.toast = [this](const juce::String& text, bool isError) { toast(text, isError); };
+    env.takeRecorder = [this] { return edit != nullptr ? &edit->takeRecorder() : nullptr; };
+    env.onTakesAdded = [this](const std::vector<juce::String>& ids) {
+        if (onTakesAdded)
+            onTakesAdded(ids);
+    };
+    env.maxSeconds = RecordingPolicy::maxRecordingSeconds;
+    env.simulateNoExclusion = options.captureNoExclusion;
+    if (options.adjustRecordingEnv)
+        options.adjustRecordingEnv(env);
+    recorder = std::make_unique<RecordingController>(std::move(env));
+    recorder->addChangeListener(this);
+
     attachProject(ProjectEdit::createUntitled(host, untitledRoot, startError));
     if (edit != nullptr)
         startTimerHz(30);
@@ -32,6 +71,8 @@ AppController::AppController(AppOptions options)
 AppController::~AppController()
 {
     stopTimer();
+    recorder->removeChangeListener(this);
+    recorder.reset(); // before the project: it ends a running recording
     host.onAudioReady = nullptr;
     registry.removeChangeListener(this);
     watchedState.removeListener(this);
@@ -45,9 +86,11 @@ void AppController::attachProject(std::unique_ptr<ProjectEdit> project)
         return;
     edit = std::move(project);
     ++generation;
+    edit->transport().onLocateRefused = [this] { toast("Stop recording first", true); };
     commands = std::make_unique<commands::CommandService>(edit->samplerState(), edit->undoManager(), edit->bundleDir(),
                                                           &edit->arrangement());
     savedToken = commands->historyToken();
+    commands->onRefused = [this](const juce::String& message) { toast(message, true); };
     edit->arrangement().addChangeListener(this);
     importService = std::make_unique<io::ImportService>(edit->samplerState(), *commands, [this] { return edit->bundleDir(); }, registry);
     importService->onMessage = [this](const io::ImportMessage& message) { handleImportMessage(message); };
@@ -66,6 +109,8 @@ void AppController::closeProject()
         return;
     if (onProjectClosing)
         onProjectClosing();
+    if (recorder != nullptr)
+        recorder->abortNow(); // a recording that is still running cannot outlive the project it writes into
     audition->stop();
     edit->transport().stop();
     edit->arrangement().removeChangeListener(this);
@@ -78,6 +123,12 @@ void AppController::closeProject()
 }
 
 void AppController::guardUnsaved(std::function<void()> proceed)
+{
+    // A running recording is finished into the current project first; the unsaved-changes question comes after it.
+    recorder->finishThen([this, proceed] { askAboutUnsaved(proceed); });
+}
+
+void AppController::askAboutUnsaved(std::function<void()> proceed)
 {
     if (edit == nullptr || ! isDirty() || ! askToSave)
     {
@@ -96,6 +147,8 @@ void AppController::saveThen(std::function<void()> next)
 {
     if (edit->isUntitled())
     {
+        if (refuseWhileRecording())
+            return;
         saveAsThen(std::move(next));
         return;
     }
@@ -115,7 +168,7 @@ void AppController::saveThen(std::function<void()> next)
 
 void AppController::saveAsThen(std::function<void()> next)
 {
-    if (! chooseSaveLocation)
+    if (! chooseSaveLocation || refuseWhileRecording())
         return;
     if (importService != nullptr && importService->isBusy())
     {
@@ -156,6 +209,14 @@ void AppController::requestSaveAs()
 {
     if (edit != nullptr)
         saveAsThen({});
+}
+
+bool AppController::refuseWhileRecording()
+{
+    if (recorder == nullptr || ! recorder->isActive())
+        return false;
+    toast("Stop recording first", true); // the takes are written into the project folder
+    return true;
 }
 
 bool AppController::refuseWhileImporting()
@@ -235,12 +296,16 @@ void AppController::requestQuit()
 
 void AppController::importFiles(const juce::Array<juce::File>& files)
 {
+    if (refuseWhileRecording())
+        return; // the import would add to the project while the takes are being written into it
     if (importService != nullptr)
         importService->importFiles(files);
 }
 
 void AppController::importAndPlace(const juce::Array<juce::File>& files, commands::PlacementTarget target)
 {
+    if (refuseWhileRecording())
+        return;
     if (importService != nullptr)
         importService->importFiles(files, target);
 }

@@ -14,6 +14,7 @@ namespace
 {
 const juce::Identifier sourceIdProperty("sampler_sourceId");
 const juce::Identifier loopOnProperty("sampler_loopOn");
+const juce::Identifier inputProperty("sampler_input");
 
 /** Changes that are not edits: the playhead and Tracktion's own time stamp. */
 bool isVolatile(const juce::ValueTree& tree, const juce::Identifier& property)
@@ -86,6 +87,8 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
         }
         info.mute = t.state[te::IDs::mute];
         info.solo = t.state[te::IDs::solo];
+        if (const auto input = t.state[inputProperty].toString(); input.isNotEmpty())
+            info.input = input;
         return info;
     }
 
@@ -415,6 +418,17 @@ void Arrangement::setTrackMute(const juce::String& trackId, bool mute)
     // AudioTrack binds mute and solo without the undo manager, so the property is written here with it.
     if (auto* t = impl->findTrack(trackId))
         t->state.setProperty(te::IDs::mute, mute, impl->um());
+}
+
+void Arrangement::setTrackInput(const juce::String& trackId, const juce::String& input)
+{
+    if (auto* t = impl->findTrack(trackId))
+    {
+        if (input.isEmpty() || input == "system:default")
+            t->state.removeProperty(inputProperty, impl->um());
+        else
+            t->state.setProperty(inputProperty, input, impl->um());
+    }
 }
 
 void Arrangement::setTrackSolo(const juce::String& trackId, bool solo)

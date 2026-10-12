@@ -41,6 +41,9 @@ public:
         undo step (repeated mixer clicks on the same control of the same track).
     */
     virtual juce::String coalesceKey() const { return {}; }
+
+    /** Mixer commands (volume, pan, mute, solo) keep working while a recording runs; everything else is refused. */
+    virtual bool allowedWhileRecording() const { return false; }
 };
 
 /**
@@ -115,6 +118,14 @@ public:
         false;
 #endif
 
+    /**
+        The recording lock (track-recording spec, "Edits during a recording"): while set, every command that is not
+        `allowedWhileRecording`, and undo and redo, are refused: nothing changes and `onRefused` gets the message.
+    */
+    void setRecordingLock(bool locked) { recordingLock = locked; }
+    bool isRecordingLocked() const { return recordingLock; }
+    std::function<void(const juce::String& message)> onRefused;
+
     /** Called with a message when a check fails. The default logs it and stops (jassertfalse); tests replace it. */
     std::function<void(const juce::String& message)> onInvariantViolation;
 
@@ -124,7 +135,11 @@ private:
     /** Updates the history serials after a change; `sameStep` when it joined the current step. */
     void recordChange(bool sameStep);
 
+    bool refuseWhileRecording(const Command&);
+    void refuse();
+
     ModelContext context;
+    bool recordingLock = false;
     bool gestureOpen = false;
     juce::String gestureName;
     juce::String lastKey;

@@ -36,9 +36,10 @@ void TransportButton::setLit(bool on)
 void TransportButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
 {
     const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
-    g.setColour(lit ? theme::accent : (down || highlighted) && isEnabled() ? theme::selected : theme::raised);
+    const auto litColour = icon == Icon::record ? theme::record : theme::accent;
+    g.setColour(lit ? litColour : (down || highlighted) && isEnabled() ? theme::selected : theme::raised);
     g.fillRoundedRectangle(bounds, 8.0f);
-    g.setColour(lit ? theme::accent : theme::border);
+    g.setColour(lit ? litColour : theme::border);
     g.drawRoundedRectangle(bounds, 8.0f, 1.0f);
     const auto c = bounds.getCentre();
     juce::Path p;
@@ -48,7 +49,7 @@ void TransportButton::paintButton(juce::Graphics& g, bool highlighted, bool down
         case Icon::play: p.addTriangle(c.x - 5.0f, c.y - 6.5f, c.x - 5.0f, c.y + 6.5f, c.x + 6.0f, c.y); break;
         case Icon::record: p.addEllipse(c.x - 6.0f, c.y - 6.0f, 12.0f, 12.0f); break;
     }
-    const auto ink = icon == Icon::record ? theme::record : (lit ? theme::background : theme::text);
+    const auto ink = icon == Icon::record ? (lit ? theme::background : theme::record) : (lit ? theme::background : theme::text);
     g.setColour(isEnabled() ? ink : ink.withAlpha(0.35f));
     g.fillPath(p);
 }
@@ -220,8 +221,12 @@ HeaderBar::HeaderBar(HeaderContext context) : ctx(std::move(context))
 
     stopButton.onClick = [this] { stopPressed(); };
     playButton.onClick = [this] { togglePlay(); };
-    recordButton.setEnabled(false);
-    recordButton.setTooltip("Recording computer audio arrives in a later version");
+    recordButton.setEnabled(static_cast<bool>(ctx.toggleRecord));
+    recordButton.setTooltip("Record on the armed tracks (Ctrl+R)");
+    recordButton.onClick = [this] {
+        if (ctx.toggleRecord)
+            ctx.toggleRecord();
+    };
 
     tempo.setRange({20.0, 999.0, 120.0, 0.01});
     tempo.setSuffix({}, 2);
@@ -311,6 +316,7 @@ void HeaderBar::refresh()
 void HeaderBar::tick(double elapsedMs)
 {
     playButton.setLit(ctx.transport.isPlaying());
+    recordButton.setLit(ctx.isRecording && ctx.isRecording());
     if (! position.isEditing())
         position.setPosition(ctx.transport.positionBeats());
     masterMeter.push(ctx.meters.readMaster(), elapsedMs);
@@ -318,10 +324,12 @@ void HeaderBar::tick(double elapsedMs)
 
 void HeaderBar::stopPressed()
 {
+    if (ctx.stopPressed)
+        ctx.stopPressed();
     if (ctx.transport.isPlaying() || ctx.transport.isPlayPending())
         ctx.transport.stop();
-    else
-        returnToStart();
+    else if (! (ctx.isRecording && ctx.isRecording()))
+        returnToStart(); // while a recording runs the playhead is locked: a second Stop only waits for it to end
 }
 
 void HeaderBar::returnToStart()

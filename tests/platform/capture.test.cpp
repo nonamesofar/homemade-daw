@@ -97,3 +97,20 @@ TEST_CASE("a short capture starts, stops and writes a file", "[platform][capture
     CHECK(stats.framesWritten > 0); // silence counts as recorded time
     CHECK(out.getSize() > 44);
 }
+
+TEST_CASE("a capture source is single-use: a second start says so", "[platform][capture]")
+{
+    const auto dir = testDir("capture-single-use");
+    auto capture = sampler::platform::createCaptureSource();
+    sampler::platform::CaptureOptions options;
+    options.excludeOwnProcess = false;
+    const auto first = capture->start(dir.getChildFile("a.wav"), options);
+    if (noOutputDevice(first))
+        SKIP("no output device: " << first.getErrorMessage());
+    REQUIRE(first.wasOk());
+    capture->stop();
+    const auto second = capture->start(dir.getChildFile("b.wav"), options);
+    REQUIRE(second.failed());
+    CHECK(second.getErrorMessage().contains("already used"));
+    CHECK_FALSE(dir.getChildFile("b.wav").exists());
+}

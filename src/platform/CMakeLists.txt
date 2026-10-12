@@ -1,6 +1,6 @@
 if(WIN32)
     add_library(sampler_platform STATIC
-        ICaptureSource.h NativeWindowTools.h
+        CaptureGap.h ICaptureSource.h NativeWindowTools.h RealtimeGuard.h TakeWriter.h TakeWriter.cpp WavTail.h WavTail.cpp
         windows/NativeWindowTools.cpp
         windows/WasapiLoopbackCapture.cpp)
     target_include_directories(sampler_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)

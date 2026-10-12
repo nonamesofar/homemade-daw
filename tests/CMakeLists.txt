@@ -24,7 +24,7 @@ sampler_target_warnings(sampler_ui_component_tests)
 catch_discover_tests(sampler_ui_component_tests)
 
 # Platform code (capture lifecycle); needs an output device, skips without one.
-add_executable(sampler_platform_tests platform/capture.test.cpp)
+add_executable(sampler_platform_tests platform/capture.test.cpp platform/capture_gap.test.cpp platform/take_writer.test.cpp)
 target_link_libraries(sampler_platform_tests PRIVATE sampler_platform Catch2::Catch2WithMain)
 sampler_target_debuggable(sampler_platform_tests)
 sampler_target_warnings(sampler_platform_tests)
@@ -81,7 +81,8 @@ sampler_target_warnings(sampler_commands_tests)
 catch_discover_tests(sampler_commands_tests ADD_TAGS_AS_LABELS)
 
 # The main window content and its controller (headless: no top-level window is created).
-add_executable(sampler_app_tests app/arrangement_app.test.cpp app/main_component.test.cpp app/project_flow.test.cpp app/progress.test.cpp)
+add_executable(sampler_app_tests app/arrangement_app.test.cpp app/main_component.test.cpp app/project_flow.test.cpp app/progress.test.cpp app/recording_controller.test.cpp app/recording_app.test.cpp app/recording_hardware.test.cpp)
+target_include_directories(sampler_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_compile_definitions(sampler_app_tests PRIVATE SAMPLER_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/audio-fixtures")
 target_link_libraries(sampler_app_tests PRIVATE sampler_app_core Catch2::Catch2WithMain)
 sampler_target_debuggable(sampler_app_tests)
@@ -90,7 +91,7 @@ catch_discover_tests(sampler_app_tests ADD_TAGS_AS_LABELS)
 
 # The arrangement (facade, commands, transport, renders) on a real headless engine.
 add_executable(sampler_arrange_tests arrange/arrangement.test.cpp arrange/arrange_commands.test.cpp arrange/arrangement_view.test.cpp
-    arrange/arrange_more.test.cpp arrange/arrange_property.test.cpp arrange/arrange_perf.test.cpp arrange/arrange_hardware.test.cpp)
+    arrange/arrange_more.test.cpp arrange/arrange_property.test.cpp arrange/arrange_perf.test.cpp arrange/arrange_hardware.test.cpp arrange/recording_commands.test.cpp arrange/recording_view.test.cpp arrange/take_tap.test.cpp)
 target_include_directories(sampler_arrange_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(sampler_arrange_tests PRIVATE SAMPLER_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/audio-fixtures")
 target_link_libraries(sampler_arrange_tests PRIVATE sampler_ui sampler_commands sampler_engine sampler_juce Catch2::Catch2WithMain)
