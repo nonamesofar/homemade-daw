@@ -17,6 +17,7 @@ AppController::AppController(AppOptions options)
         host.holdAudioReadyFor(options.audioStartDelayMs);
 
     untitledRoot = options.untitledRoot;
+    padRateOverride = options.padOutputRate;
     audition = std::make_unique<Audition>(host);
     registry.addChangeListener(this);
     host.onAudioReady = [this] {
@@ -94,6 +95,9 @@ void AppController::attachProject(std::unique_ptr<ProjectEdit> project)
     edit->arrangement().addChangeListener(this);
     importService = std::make_unique<io::ImportService>(edit->samplerState(), *commands, [this] { return edit->bundleDir(); }, registry);
     importService->onMessage = [this](const io::ImportMessage& message) { handleImportMessage(message); };
+    analysisService = std::make_unique<io::AnalysisService>([this] { return edit->bundleDir(); });
+    analysisService->onAnalysed = [this](const juce::String&) { sendChangeMessage(); };
+    analysisService->onFailed = [this](const juce::String&) { sendChangeMessage(); };
     watchedState = edit->samplerState();
     watchedState.addListener(this);
     if (const auto missing = edit->missingFiles(); ! missing.isEmpty())
@@ -101,6 +105,24 @@ void AppController::attachProject(std::unique_ptr<ProjectEdit> project)
     if (onProjectAttached)
         onProjectAttached();
     sendChangeMessage();
+}
+
+PadController& AppController::pads()
+{
+    // Made when the first sound is opened in the sample editor, so a session that never chops pays nothing for it.
+    if (padController == nullptr)
+    {
+        padPlayer = std::make_unique<PadEngine>(host);
+        padController = std::make_unique<PadController>(*padPlayer, edit->samplerState(), [this] { return edit->bundleDir(); },
+                                                        [this] { return padRateOverride > 0.0 ? padRateOverride : host.currentSampleRate(); });
+    }
+    return *padController;
+}
+
+PadEngine& AppController::padEngine()
+{
+    pads();
+    return *padPlayer;
 }
 
 void AppController::closeProject()
@@ -117,6 +139,9 @@ void AppController::closeProject()
     watchedState.removeListener(this);
     watchedState = {};
     importService.reset(); // waits for a running import
+    analysisService.reset();
+    padController.reset(); // before the player it supplies
+    padPlayer.reset();
     commands.reset();
     edit->discardUntitled(); // an untitled project leaves nothing behind; a saved one is only closed
     edit.reset();
@@ -353,6 +378,13 @@ void AppController::toggleAudition(const juce::String& sourceId)
         return;
     }
     playNow(sourceId);
+}
+
+void AppController::stopAudition()
+{
+    queue.cancel();
+    audition->stop();
+    sendChangeMessage();
 }
 
 void AppController::playNow(const juce::String& sourceId)

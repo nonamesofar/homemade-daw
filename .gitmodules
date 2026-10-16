@@ -19,3 +19,6 @@
 [submodule "external/lame"]
 	path = external/lame
 	url = https://github.com/lameproject/lame.git
+[submodule "external/r8brain-free-src"]
+	path = external/r8brain-free-src
+	url = https://github.com/avaneev/r8brain-free-src.git

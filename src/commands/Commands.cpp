@@ -32,4 +32,26 @@ void SetSourceCategory::perform(ModelContext& context)
     if (source.isValid() && source.category() != category)
         source.setCategory(category, &context.undo);
 }
+
+void SetSourceTempo::perform(ModelContext& context)
+{
+    auto source = model::SamplerState(context.sampler).findSourceById(id);
+    if (! source.isValid())
+        return;
+    const auto clamped = juce::jlimit(model::minCorrectedBpm, model::maxCorrectedBpm, bpm);
+    if (source.hasTempoCorrection() && std::abs(source.tempoCorrection() - clamped) < 1.0e-9)
+        return;
+    source.setTempoCorrection(clamped, &context.undo);
+}
+
+void MoveFirstBeat::perform(ModelContext& context)
+{
+    auto source = model::SamplerState(context.sampler).findSourceById(id);
+    if (! source.isValid())
+        return;
+    const auto clamped = juce::jlimit<juce::int64>(0, juce::jmax<juce::int64>(0, source.frames() - 1), frame);
+    if (source.hasBeatOffsetCorrection() && source.beatOffsetCorrection() == clamped)
+        return;
+    source.setBeatOffsetCorrection(clamped, &context.undo);
+}
 } // namespace sampler::commands

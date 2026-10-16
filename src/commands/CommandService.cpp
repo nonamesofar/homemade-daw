@@ -44,6 +44,14 @@ std::optional<juce::String> findInvariantViolation(const juce::ValueTree& sample
         for (const auto& property : {ids::original, ids::decoded})
             if (const auto problem = checkBundlePath(child[property].toString(), bundleDir); problem.isNotEmpty())
                 return "source " + id + ": " + property.toString() + " " + problem;
+        const Source source(child);
+        if (source.hasTempoCorrection() && (source.tempoCorrection() < minCorrectedBpm || source.tempoCorrection() > maxCorrectedBpm))
+            return "source " + id + ": the tempo correction is outside 20 to 999 BPM";
+        if (source.hasBeatOffsetCorrection() && (source.beatOffsetCorrection() < 0 || source.beatOffsetCorrection() > source.frames()))
+            return "source " + id + ": the first beat lies outside the sound";
+        if (source.hasSliceSet())
+            if (const auto problem = findSliceSetViolation(source.rawSliceSet(), source.frames(), source.sampleRate()))
+                return "source " + id + ": " + *problem;
     }
     return std::nullopt;
 }

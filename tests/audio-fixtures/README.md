@@ -24,3 +24,8 @@ Two large cases are never committed. They are generated when needed:
 | `5ch-tone.wav` | 1 s, 5 channels | down-mix to stereo with a toast |
 | `corrupt.wav` | 2 KB of seeded noise with a `.wav` name | failed import leaves no trace |
 | `not-audio.txt` | a text file | unsupported file type |
+| `break-90.wav` + `.json` | 4 bars at 90 BPM, 44.1 kHz stereo, exactly 470400 frames; 16 hits (kick, snare, hat) one per beat after 100 ms of lead silence | M3 analysis tests and the sample editor demos (header "4 bars · 90 BPM", first beat on the first kick, slicing) |
+| `pattern-120-7s.wav` + `.json` | 7 s (3.5 bars, not a whole loop) of a steady 120 BPM pattern, mono; kick and snare on the beats, hats on the offbeats | tempo estimation without an exact loop length |
+| `loop-120-48k.wav` + `.json` | the 2-bar 120 BPM loop at 48 kHz, exactly 192000 frames | a rate other than 44.1 kHz (analysis, pads at the right pitch) |
+
+Each `.json` truth file holds `tempo` (BPM), `sampleRate`, `frames`, `firstBeatFrame` and `onsets` (the first sample of every hit); the analysis tests and the accuracy suite compare against it. The `.json` files are plain text (not LFS).

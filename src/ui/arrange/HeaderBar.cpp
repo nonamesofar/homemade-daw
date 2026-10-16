@@ -215,7 +215,12 @@ HeaderBar::HeaderBar(HeaderContext context) : ctx(std::move(context))
     viewToggle.setSelected(1);
     viewToggle.onChange = [this](int index) {
         if (index != 1)
-            viewToggle.setSelected(1); // the Session view arrives in M6
+        {
+            viewToggle.setSelected(showingEditor ? -1 : 1); // the Session view arrives in M6
+            return;
+        }
+        if (onArrangeChosen)
+            onArrangeChosen();
     };
     viewToggle.setTooltip("The Session view arrives in a later version");
 

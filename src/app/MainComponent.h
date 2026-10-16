@@ -7,7 +7,9 @@
 #include "ui/arrange/ArrangementView.h"
 #include "ui/arrange/ClipInspector.h"
 #include "ui/arrange/HeaderBar.h"
+#include "ui/UiState.h"
 #include "ui/browser/BrowserPanel.h"
+#include "ui/sampleeditor/SampleEditorView.h"
 #include "ui/widgets/Toast.h"
 #include "ui/widgets/WidgetGallery.h"
 
@@ -55,7 +57,8 @@ enum CommandIds : int
     commands. Keys go through the KeyboardRouter (design D-9): a dialog or a text field gets them first.
 */
 class MainComponent : public juce::Component, public juce::FileDragAndDropTarget, public juce::DragAndDropContainer,
-                      public juce::MenuBarModel, public juce::ApplicationCommandTarget, private juce::ChangeListener
+                      public juce::MenuBarModel, public juce::ApplicationCommandTarget, private juce::ChangeListener,
+                      private juce::FocusChangeListener
 {
 public:
     explicit MainComponent(AppController&);
@@ -67,6 +70,23 @@ public:
     ui::ArrangementView* arrangement() { return arrangementView.get(); }
     ui::HeaderBar* header() { return headerBar.get(); }
     ui::ClipInspector* inspector() { return clipInspector.get(); }
+    /** The sample editor (null while there is no project); it shows when a sound is open in it. */
+    ui::SampleEditorView* sampleEditor() { return editorView.get(); }
+    ui::UiState& uiState() { return viewState; }
+    ui::KeyboardRouter& router() { return keyRouter; }
+    bool isEditorOpen() const { return editorView != nullptr && editorView->isOpen(); }
+    /** Shows a sound in the sample editor in place of the arrangement (browser, clip panel). */
+    void openEditor(const juce::String& sourceId);
+    /** "< Arrange": shows the arrangement as it was. */
+    void closeEditor();
+
+    /**
+        Lets go of every pad: the keys that are held, the mouse-held ones and the lights. Done when the sample editor loses
+        keyboard focus, is hidden, the app is deactivated or another project is opened.
+    */
+    void releaseAllPads();
+    /** Tests replace how the window finds out whether the sample editor has keyboard focus / the app is in front. */
+    std::function<bool()> editorFocusProbe, appActiveProbe;
     ui::SelectionModel& selection() { return selectionModel; }
     const std::vector<commands::ClipRecord>& clipboard() const { return copied; }
 
@@ -115,6 +135,8 @@ public:
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override { refresh(); }
+    void globalFocusChanged(juce::Component*) override;
+    bool editorHasFocus() const;
     void installDialogs();
     void buildProjectViews();
     void dropProjectViews();
@@ -139,6 +161,8 @@ private:
     std::unique_ptr<ui::HeaderBar> headerBar;
     std::unique_ptr<ui::ArrangementView> arrangementView;
     std::unique_ptr<ui::ClipInspector> clipInspector;
+    std::unique_ptr<ui::SampleEditorView> editorView;
+    ui::UiState viewState;
     std::vector<commands::ClipRecord> copied;
     ui::KeyboardRouter keyRouter;
     juce::String audioStatus;
@@ -150,5 +174,6 @@ private:
     std::unique_ptr<juce::DocumentWindow> galleryWindow;
     std::unique_ptr<juce::VBlankAttachment> vblank;
     double lastVBlank = 0.0;
+    bool wasAppActive = true;
 };
 } // namespace sampler::app

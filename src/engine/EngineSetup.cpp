@@ -1,5 +1,6 @@
 #include "EngineSetup.h"
 
+#include "SlicePadPlugin.h"
 #include "TakeTapPlugin.h"
 
 #include <filesystem>
@@ -99,6 +100,7 @@ std::unique_ptr<te::Engine> makeEngine(const juce::String& appName, bool headles
     auto created = std::make_unique<te::Engine>(appName, std::make_unique<SamplerUIBehaviour>(),
                                                std::make_unique<SamplerEngineBehaviour>(headless));
     created->getPluginManager().createBuiltInType<engine::TakeTapPlugin>();
+    created->getPluginManager().createBuiltInType<engine::SlicePadPlugin>();
     return created;
 }
 

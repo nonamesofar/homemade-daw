@@ -4,7 +4,8 @@ add_library(sampler_commands STATIC
     CommandService.cpp CommandService.h
     Commands.cpp Commands.h
     EditPlanner.cpp EditPlanner.h
-    ArrangeCommands.cpp ArrangeCommands.h)
+    ArrangeCommands.cpp ArrangeCommands.h
+    SliceCommands.cpp SliceCommands.h)
 target_include_directories(sampler_commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(sampler_commands PUBLIC sampler_engine sampler_model sampler_juce)
 sampler_target_debuggable(sampler_commands)

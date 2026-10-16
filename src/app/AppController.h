@@ -5,8 +5,10 @@
 #include "engine/AuditionRequestQueue.h"
 #include "engine/EngineHost.h"
 #include "engine/ProjectEdit.h"
+#include "io/AnalysisService.h"
 #include "io/ImportService.h"
 #include "io/JobRegistry.h"
+#include "PadController.h"
 #include "RecordingController.h"
 #include "ui/browser/BrowserPanel.h"
 
@@ -25,6 +27,8 @@ struct AppOptions
     juce::File untitledRoot = ProjectEdit::defaultUntitledRoot();
     /** Developer flag `--capture-no-exclusion`: System audio takes behave as if Sampler could not be left out of them. */
     bool captureNoExclusion = false;
+    /** Tests: the sample rate the pads render for, instead of the output device's (0 = use the device). */
+    double padOutputRate = 0.0;
     /** Tests: replaces the parts of the recording environment that need hardware (capture sources, device list, clock). */
     std::function<void(RecordingEnv&)> adjustRecordingEnv;
 };
@@ -51,6 +55,11 @@ public:
     commands::CommandService& commandService() { return *commands; }
     io::JobRegistry& jobs() { return registry; }
     io::ImportService& importer() { return *importService; }
+    /** Hits and tempo of the open project's sounds (background job, cache folder); never changes the project. */
+    io::AnalysisService& analyser() { return *analysisService; }
+    /** The pad player and what supplies it with the slices of the sound open in the sample editor. */
+    PadController& pads();
+    PadEngine& padEngine();
     RecordingController& recording() { return *recorder; }
 
     //==============================================================================
@@ -63,6 +72,10 @@ public:
     void setSnapName(const juce::String&);
     /** The user clicked a sound: start it, stop it, or (before the audio is ready) queue the request. */
     void toggleAudition(const juce::String& sourceId);
+    /** Stops what the audition plays and forgets a click that waits for the audio to become ready. */
+    void stopAudition();
+    /** Seconds played of the sound that auditions now (0 when none does). */
+    double auditionPositionSeconds() const { return audition ? audition->positionSeconds() : 0.0; }
 
     //==============================================================================
     /** Sounds sorted by name, then the ones still importing. */
@@ -113,7 +126,13 @@ public:
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override { sendChangeMessage(); }
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override { sendChangeMessage(); }
-    void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&) override { sendChangeMessage(); }
+    void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree& child) override
+    {
+        // A sound that appears (import, recording, redo) gets analysed in the background; analysis never writes the model.
+        if (analysisService != nullptr && child.hasType(model::ids::SOURCE))
+            analysisService->request(model::Source(child));
+        sendChangeMessage();
+    }
     void valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int) override { sendChangeMessage(); }
     void timerCallback() override;
 
@@ -140,11 +159,15 @@ private:
     std::unique_ptr<commands::CommandService> commands;
     io::JobRegistry registry;
     std::unique_ptr<io::ImportService> importService;
+    std::unique_ptr<io::AnalysisService> analysisService;
+    std::unique_ptr<PadEngine> padPlayer;
+    std::unique_ptr<PadController> padController;
     std::unique_ptr<Audition> audition;
     AuditionRequestQueue queue;
     std::unique_ptr<RecordingController> recorder;
     juce::String startError;
     juce::File untitledRoot;
+    double padRateOverride = 0.0;
     int generation = 0;
     int savedToken = 0;
     juce::uint32 startedAtMs = 0;

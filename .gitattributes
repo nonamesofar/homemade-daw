@@ -21,3 +21,4 @@ tests/golden/**/*.wav filter=lfs diff=lfs merge=lfs -text
 # Audio fixtures for demos and tests live in Git LFS (the README beside them stays plain text).
 tests/audio-fixtures/** filter=lfs diff=lfs merge=lfs -text
 tests/audio-fixtures/README.md !filter !diff !merge text
+tests/audio-fixtures/*.json !filter !diff !merge text

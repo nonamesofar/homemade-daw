@@ -204,6 +204,52 @@ std::vector<juce::String> CreateClipsFromSources::place(ModelContext& context, c
 
 void CreateClipsFromSources::perform(ModelContext& context) { results = place(context, sources, where); }
 
+void SlicesToTrack::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto source = model::SamplerState(context.sampler).findSourceById(id);
+    if (! source.isValid() || source.frames() <= 0 || source.sampleRate() <= 0.0)
+        return;
+    const auto data = source.sliceSet();
+    const auto tracks = a.tracks();
+    newTrackId = a.addTrack(static_cast<int>(tracks.size()), source.name(), nextTrackColour(tracks));
+    if (newTrackId.isEmpty())
+        return;
+
+    const auto time = timeMapOf(a);
+    const double rate = source.sampleRate();
+    const double soundSeconds = source.lengthSeconds();
+    auto beat = std::max(0.0, startBeat);
+    juce::int64 start = 0;
+    for (int i = 0; i < data.numSlices(); ++i)
+    {
+        const auto end = i < static_cast<int>(data.markers.size()) ? data.markers[static_cast<size_t>(i)] : source.frames();
+        const auto& settings = data.slices[static_cast<size_t>(i)];
+        if (end <= start)
+            continue; // a slice without length (a damaged slice set) has nothing to play
+        const double lengthSeconds = static_cast<double>(end - start) / rate;
+
+        engine::ClipSpec spec;
+        spec.sourceId = source.id();
+        spec.name = source.name() + " " + juce::String(i + 1);
+        spec.file = context.bundleDir.getChildFile(source.decoded());
+        spec.start = beat;
+        spec.lengthSeconds = lengthSeconds;
+        // A reversed clip plays the reversed file, in which the slice [s, e) sits at [length - e, length - s).
+        spec.offsetSeconds = settings.reverse ? soundSeconds - static_cast<double>(end) / rate : static_cast<double>(start) / rate;
+        spec.gainDb = settings.gainDb;
+        spec.reversed = settings.reverse;
+        spec.originSourceId = source.id();
+        spec.originSlice = i;
+        spec.pitch = settings.pitch;
+        if (const auto clip = a.createClip(newTrackId, spec); clip.isNotEmpty())
+            results.push_back(clip);
+
+        beat = time.beatAfter(beat, lengthSeconds);
+        start = end;
+    }
+}
+
 juce::String ImportAndPlace::name() const
 {
     if (items.empty())

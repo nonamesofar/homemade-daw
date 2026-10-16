@@ -75,8 +75,10 @@ ClipInspector::ClipInspector(const engine::Arrangement& a, commands::CommandServ
         fade->setEnabled(false);
         fade->setTooltip("Fades arrive in a later version");
     }
-    openEditor.setEnabled(false);
-    openEditor.setTooltip("The sample editor arrives in a later version");
+    openEditor.onClick = [this] {
+        if (clip && ! clip->missing && onOpenEditor)
+            onOpenEditor(clip->sourceId);
+    };
 
     reverse.setWantsKeyboardFocus(false);
     reverse.onClick = [this] {
@@ -112,6 +114,8 @@ void ClipInspector::refresh()
             start.setValue(clip->start, false);
         start.repaint();
         reverse.setToggleState(clip->reversed, juce::dontSendNotification);
+        openEditor.setEnabled(! clip->missing);
+        openEditor.setTooltip(clip->missing ? "The sound's file is missing" : "Opens the clip's sound in the sample editor");
     }
     else
     {

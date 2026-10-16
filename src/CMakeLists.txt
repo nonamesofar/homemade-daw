@@ -1,4 +1,6 @@
 add_subdirectory(model)
+add_subdirectory(analysis)
+add_subdirectory(render)
 add_subdirectory(commands)
 add_subdirectory(engine)
 add_subdirectory(io)

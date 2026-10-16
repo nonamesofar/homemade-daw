@@ -28,6 +28,7 @@ class SegmentedControl : public juce::Component, public juce::SettableTooltipCli
 {
 public:
     void setItems(const juce::StringArray&);
+    /** `index` -1 chooses none (the view is neither of the segments). */
     void setSelected(int index, bool notify = false);
     int selected() const { return selectedIndex; }
     int itemAt(juce::Point<int> position) const { return segmentAt(position.x, getWidth(), items.size()); }

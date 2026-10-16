@@ -25,8 +25,8 @@ The intended workflow:
 | Non-destructive: original audio is never modified, every edit is project data | available |
 | Multi-track arrangement timeline | built; awaiting acceptance run |
 | Record computer audio (WASAPI loopback, app's own sound left out), the master or another track onto armed tracks | built; awaiting acceptance run |
-| Sample editor with beat, transient and manual slicing | planned |
-| 4x4 slice pads | planned |
+| Sample editor with beat, transient and manual slicing, tempo and hit analysis, slices laid out on a new track | built; awaiting acceptance run |
+| 4x4 slice pads (mouse and keyboard, banks, One-shot / Gate / Loop, pitch, gain, reverse per slice) | built; awaiting acceptance run |
 | Tempo-aware playback: re-pitch, beat-preserving and tonal warp modes | planned |
 | WAV, MP3 and stem export | planned |
 | VST3 plugin hosting, including multi-output instruments | planned; proven with a test plugin |

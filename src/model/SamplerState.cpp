@@ -49,6 +49,16 @@ void Source::setCategory(Category category, juce::UndoManager* undo)
     state.setProperty(ids::category, toString(category), undo);
 }
 
+void Source::setTempoCorrection(double bpm, juce::UndoManager* undo)
+{
+    state.setProperty(ids::bpm, juce::jlimit(minCorrectedBpm, maxCorrectedBpm, bpm), undo);
+}
+
+void Source::setBeatOffsetCorrection(juce::int64 frame, juce::UndoManager* undo)
+{
+    state.setProperty(ids::beatOffset, juce::jlimit<juce::int64>(0, juce::jmax<juce::int64>(0, frames()), frame), undo);
+}
+
 juce::ValueTree SamplerState::createEmpty()
 {
     juce::ValueTree node(ids::SAMPLER);

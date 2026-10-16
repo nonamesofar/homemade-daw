@@ -90,3 +90,38 @@ TEST_CASE("fixtures have the properties the demos rely on", "[io][fixtures]")
     CHECK_FALSE(decode(dir.getChildFile("corrupt.wav"), none));
     CHECK_FALSE(decode(dir.getChildFile("not-audio.txt"), none));
 }
+
+TEST_CASE("analysis fixtures have the lengths and truth the analysis tests rely on", "[io][fixtures]")
+{
+    const juce::File dir(SAMPLER_FIXTURES_DIR);
+    struct Expected
+    {
+        const char* name;
+        double rate;
+        int channels;
+        juce::int64 frames;
+        double tempo;
+        int hits;
+    };
+    const Expected expected[] = {{"break-90", 44100.0, 2, 470400, 90.0, 16},
+                                 {"pattern-120-7s", 44100.0, 1, 308700, 120.0, 28},
+                                 {"loop-120-48k", 48000.0, 2, 192000, 120.0, 10}};
+    for (const auto& e : expected)
+    {
+        INFO(e.name);
+        Decoded audio;
+        REQUIRE(decode(dir.getChildFile(juce::String(e.name) + ".wav"), audio));
+        CHECK(audio.sampleRate == e.rate);
+        CHECK(audio.channels == e.channels);
+        CHECK(audio.frames == e.frames);
+
+        const auto truth = juce::JSON::parse(dir.getChildFile(juce::String(e.name) + ".json"));
+        REQUIRE(truth.isObject());
+        CHECK(static_cast<double>(truth["tempo"]) == e.tempo);
+        CHECK(static_cast<juce::int64>(truth["frames"]) == e.frames);
+        const auto* onsets = truth["onsets"].getArray();
+        REQUIRE(onsets != nullptr);
+        CHECK(onsets->size() == e.hits);
+        CHECK(static_cast<int>(truth["firstBeatFrame"]) == static_cast<int>((*onsets)[0]));
+    }
+}

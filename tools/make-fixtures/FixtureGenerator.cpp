@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace sampler::fixtures
@@ -232,6 +233,152 @@ juce::AudioBuffer<float> makeFiveChannelTone(double sampleRate)
     return quantise(channels);
 }
 
+
+//==============================================================================
+// Analysis fixtures: known tempo and known hit positions (written next to the audio as `<name>.json`).
+struct AnalysisFixture
+{
+    juce::AudioBuffer<float> audio;
+    double sampleRate = 44100.0;
+    double tempo = 120.0;
+    std::vector<int> onsets; // first sample of each hit
+};
+
+enum class Drum { kick, snare, hat };
+
+void addDrum(std::vector<double>& out, Drum drum, int start, double sampleRate, double gain, Noise& noise)
+{
+    switch (drum)
+    {
+        case Drum::kick: addKick(out, start, sampleRate, gain); break;
+        case Drum::snare: addSnare(out, start, sampleRate, gain, noise); break;
+        case Drum::hat: addHat(out, start, sampleRate, gain, noise); break;
+    }
+}
+
+double drumGain(Drum drum)
+{
+    switch (drum)
+    {
+        case Drum::kick: return 1.0;
+        case Drum::snare: return 0.8;
+        case Drum::hat: return 0.6;
+    }
+    return 1.0;
+}
+
+/**
+    4 bars of 4/4 at 90 BPM, exactly 470400 frames at 44.1 kHz (a loop that is a whole number of bars). 16 hits, one on
+    every beat, all shifted by 100 ms of lead silence, so the first beat is the first kick and not the file start.
+*/
+AnalysisFixture makeBreak90()
+{
+    constexpr double rate = 44100.0;
+    constexpr int frames = 470400;
+    constexpr int beatFrames = 29400; // 60 / 90 s
+    constexpr int lead = 4410;        // 100 ms
+    const char pattern[] = "KHSHKKSHKHSKKHSS";
+    AnalysisFixture fixture;
+    fixture.sampleRate = rate;
+    fixture.tempo = 90.0;
+    auto channels = makeChannels(2, frames);
+    Noise noise(4242);
+    std::vector<double> mix(static_cast<size_t>(frames), 0.0);
+    for (int b = 0; b < 16; ++b)
+    {
+        const auto drum = pattern[b] == 'K' ? Drum::kick : pattern[b] == 'S' ? Drum::snare : Drum::hat;
+        const int at = lead + b * beatFrames;
+        addDrum(mix, drum, at, rate, drumGain(drum), noise);
+        fixture.onsets.push_back(at);
+    }
+    for (size_t i = 0; i < mix.size(); ++i)
+    {
+        channels[0][i] = mix[i];
+        channels[1][i] = 0.9 * mix[i];
+    }
+    normalise(channels, 0.8);
+    fixture.audio = quantise(channels);
+    return fixture;
+}
+
+/** 7 s (3.5 bars) of a steady 120 BPM pattern: kick and snare on the quarters, hats on the offbeats. Mono. */
+AnalysisFixture makePattern7s()
+{
+    constexpr double rate = 44100.0;
+    constexpr int frames = 308700;
+    constexpr int beatFrames = 22050;
+    AnalysisFixture fixture;
+    fixture.sampleRate = rate;
+    fixture.tempo = 120.0;
+    auto channels = makeChannels(1, frames);
+    Noise noise(9001);
+    for (int b = 0; b < 14; ++b)
+    {
+        const auto drum = b % 2 == 0 ? Drum::kick : Drum::snare;
+        addDrum(channels[0], drum, b * beatFrames, rate, drumGain(drum), noise);
+        fixture.onsets.push_back(b * beatFrames);
+        const int offbeat = b * beatFrames + beatFrames / 2;
+        if (offbeat < frames - 2000)
+        {
+            addDrum(channels[0], Drum::hat, offbeat, rate, drumGain(Drum::hat), noise);
+            fixture.onsets.push_back(offbeat);
+        }
+    }
+    std::sort(fixture.onsets.begin(), fixture.onsets.end());
+    normalise(channels, 0.8);
+    fixture.audio = quantise(channels);
+    return fixture;
+}
+
+/** The 2-bar 120 BPM kick/snare loop at 48 kHz, exactly 192000 frames: checks that rates other than 44.1 kHz work. */
+AnalysisFixture makeLoop48k()
+{
+    constexpr double rate = 48000.0;
+    constexpr int frames = 192000;
+    constexpr int beatFrames = 24000;
+    AnalysisFixture fixture;
+    fixture.sampleRate = rate;
+    fixture.tempo = 120.0;
+    auto channels = makeChannels(2, frames);
+    Noise noise(31337);
+    std::vector<double> mix(static_cast<size_t>(frames), 0.0);
+    for (int b = 0; b < 8; ++b)
+    {
+        // kick on 1 and 3, snare on 2 and 4, plus a second kick on the "and" of 3 in each bar.
+        const auto drum = b % 2 == 0 ? Drum::kick : Drum::snare;
+        addDrum(mix, drum, b * beatFrames, rate, drumGain(drum), noise);
+        fixture.onsets.push_back(b * beatFrames);
+        if (b % 4 == 2)
+        {
+            const int extra = b * beatFrames + beatFrames / 2;
+            addDrum(mix, Drum::kick, extra, rate, 0.7, noise);
+            fixture.onsets.push_back(extra);
+        }
+    }
+    std::sort(fixture.onsets.begin(), fixture.onsets.end());
+    for (size_t i = 0; i < mix.size(); ++i)
+    {
+        channels[0][i] = mix[i];
+        channels[1][i] = mix[i];
+    }
+    normalise(channels, 0.8);
+    fixture.audio = quantise(channels);
+    return fixture;
+}
+
+/** The truth file next to an analysis fixture: tempo, first beat and every hit as a frame at the file's rate. */
+juce::String truthJson(const AnalysisFixture& fixture)
+{
+    juce::String text;
+    text << "{\n  \"tempo\": " << juce::String(fixture.tempo, 1) << ",\n  \"sampleRate\": "
+         << juce::String(static_cast<int>(fixture.sampleRate)) << ",\n  \"frames\": " << fixture.audio.getNumSamples()
+         << ",\n  \"firstBeatFrame\": " << (fixture.onsets.empty() ? 0 : fixture.onsets.front()) << ",\n  \"onsets\": [";
+    for (size_t i = 0; i < fixture.onsets.size(); ++i)
+        text << (i == 0 ? "" : ", ") << fixture.onsets[i];
+    text << "]\n}\n";
+    return text;
+}
+
 //==============================================================================
 // Writers
 juce::String writeWithFormat(juce::AudioFormat& format, const juce::File& file, const juce::AudioBuffer<float>& audio,
@@ -323,7 +470,9 @@ juce::StringArray fixtureFileNames()
 {
     return {"drums-loop-120.wav", "drums-loop-120.aiff", "drums-loop-120.mp3", "drums-loop-120-notag.mp3",
             "kick.wav",           "bass-phrase.flac",    "pad-chord.ogg",      "texture-60s.flac",
-            "5ch-tone.wav",       "corrupt.wav",         "not-audio.txt"};
+            "5ch-tone.wav",       "corrupt.wav",         "not-audio.txt",
+            "break-90.wav",       "break-90.json",       "pattern-120-7s.wav", "pattern-120-7s.json",
+            "loop-120-48k.wav",   "loop-120-48k.json"};
 }
 
 juce::String generateFixtures(const juce::File& dir)
@@ -355,6 +504,15 @@ juce::String generateFixtures(const juce::File& dir)
     step(writeCorrupt(dir.getChildFile("corrupt.wav")));
     if (! dir.getChildFile("not-audio.txt").replaceWithText("This is not audio.\n", false, false, "\n"))
         step("cannot write not-audio.txt");
+
+    const std::pair<const char*, AnalysisFixture> analysisFixtures[] = {
+        {"break-90", makeBreak90()}, {"pattern-120-7s", makePattern7s()}, {"loop-120-48k", makeLoop48k()}};
+    for (const auto& [name, fixture] : analysisFixtures)
+    {
+        step(writeWithFormat(wav, dir.getChildFile(juce::String(name) + ".wav"), fixture.audio, fixture.sampleRate, 16));
+        if (! dir.getChildFile(juce::String(name) + ".json").replaceWithText(truthJson(fixture), false, false, "\n"))
+            step(juce::String("cannot write ") + name + ".json");
+    }
     return error;
 }
 
