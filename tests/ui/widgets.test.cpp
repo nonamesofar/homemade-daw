@@ -132,6 +132,21 @@ TEST_CASE("segmented control, toggle, value field and pad react to the user", "[
     CHECK(field.commitText("1000"));
     CHECK(field.getValue() == Approx(240.0)); // clamped
 
+    // A formatter shows a rounded value: committing the shown text unchanged must not change the value.
+    ValueField rounded;
+    rounded.setRange({0.0, 10000.0, 0.0, 0.0, false});
+    rounded.formatter = [](double v) { return juce::String(juce::roundToInt(v)); };
+    rounded.parser = [](const juce::String& t) -> std::optional<double> { return t.getDoubleValue(); };
+    rounded.setValue(7190.217, false);
+    int changes = 0;
+    rounded.onChange = [&changes](double) { ++changes; };
+    const auto before = rounded.getValue();
+    CHECK(rounded.commitText(rounded.text()));
+    CHECK(changes == 0);
+    CHECK(rounded.getValue() == before);
+    CHECK(rounded.commitText(juce::String(juce::roundToInt(before) + 10)));
+    CHECK(changes == 1);
+
     Pad pad("1");
     float velocity = 0.0f;
     pad.onTrigger = [&velocity](float v) { velocity = v; };

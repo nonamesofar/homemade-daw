@@ -377,7 +377,7 @@ TEST_CASE("clip inspector: one, none and several clips, and it follows edits", "
     CHECK(h.inspector->detailText() == juce::String::fromUTF8("Drums \xc2\xb7 Bars 5\xe2\x80\x93" "8"));
     CHECK(h.inspector->gain.isVisible());
     CHECK_FALSE(h.inspector->fadeIn.isEnabled());
-    CHECK_FALSE(h.inspector->openEditor.isEnabled());
+    CHECK(h.inspector->openEditor.isEnabled()); // the sound's file is there
 
     // Moved two bars in the timeline: the panel follows at once.
     h.f.commands->apply(std::make_unique<cmd::MoveClips>(std::vector<cmd::ClipMove>{{a, 0, 24.0}}));

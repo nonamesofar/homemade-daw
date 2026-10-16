@@ -62,6 +62,27 @@ private:
     PlacementTarget where;
 };
 
+/**
+    "Slices to new track": a new track at the end, named after the sound, with one clip per slice laid back to back from
+    `startBeat` (design D7, sample-editor spec "Slices to new track"). Each clip plays its slice's part of the sound with
+    the slice's gain and direction, is named "<sound> <n>" and remembers where it came from; later edits of the slice set do
+    not change it. A reversed slice plays the reversed render of its region (the clip's offset is into the reversed file).
+    `resultIds` are the new clips in slice order; `trackId()` is the new track.
+*/
+class SlicesToTrack final : public ArrangeCommand
+{
+public:
+    SlicesToTrack(juce::String sourceId, double startAtBeat) : id(std::move(sourceId)), startBeat(startAtBeat) {}
+    juce::String name() const override { return "Slices to new track"; }
+    void perform(ModelContext&) override;
+    const juce::String& trackId() const { return newTrackId; }
+
+private:
+    juce::String id;
+    double startBeat;
+    juce::String newTrackId;
+};
+
 /** Records imported sounds and places them, as one step (named like the import). */
 class ImportAndPlace final : public ArrangeCommand
 {

@@ -2,6 +2,7 @@
 add_library(sampler_app_core STATIC
     AppController.cpp AppController.h
     MainComponent.cpp MainComponent.h
+    PadController.cpp PadController.h
     MainWindow.cpp MainWindow.h
     RecordingController.cpp RecordingController.h
     RecordingPolicy.cpp RecordingPolicy.h)

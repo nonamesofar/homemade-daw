@@ -45,6 +45,10 @@ struct ClipInfo
     double gainDb = 0.0;
     bool reversed = false;
     bool missing = false;        // the sound's decoded file is not there
+    /** Clips made by "Slices to new track" remember where they came from (sampler_originSource / _originSlice / _pitch). */
+    juce::String originSourceId;
+    int originSlice = -1;        // index of the slice at the time; -1 for a clip that is not a slice copy
+    double pitch = 0.0;          // semitones, kept for M4 (not heard yet)
     bool rendering = false;      // a reversed clip whose render is not ready yet (silent meanwhile)
 
     double end() const { return start + length; }
@@ -75,6 +79,10 @@ struct ClipSpec
     double offsetSeconds = 0.0;
     double gainDb = 0.0;
     bool reversed = false;
+    /** Set for a copy of a slice: the sound and slice it came from, and the slice's pitch (stored, not applied). */
+    juce::String originSourceId;
+    int originSlice = -1;
+    double pitch = 0.0;
 };
 
 /**

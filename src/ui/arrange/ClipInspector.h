@@ -35,6 +35,9 @@ public:
     juce::String detailText() const { return detail; }
     bool showsClip() const { return clip.has_value(); }
 
+    /** "Open in sample editor" was pressed for the selected clip's sound. */
+    std::function<void(const juce::String& sourceId)> onOpenEditor;
+
     ValueField gain, start, fadeIn, fadeOut;
     ToggleButton reverse{"Reverse"};
     juce::TextButton openEditor{"Open in sample editor"};

@@ -93,6 +93,14 @@ void BrowserPanel::setPlayingId(const juce::String& sourceId)
     list.repaint();
 }
 
+void BrowserPanel::setOpenId(const juce::String& sourceId)
+{
+    if (openedId == sourceId)
+        return;
+    openedId = sourceId;
+    list.repaint();
+}
+
 void BrowserPanel::selectRowById(const juce::String& sourceId)
 {
     for (size_t i = 0; i < currentRows.size(); ++i)
@@ -223,6 +231,12 @@ void BrowserPanel::paintListBoxItem(int row, juce::Graphics& g, int width, int h
 
     auto area = juce::Rectangle<int>(0, 0, width, height).reduced(16, 0);
     const bool playing = ! item.importing && item.id == playingId && playingId.isNotEmpty();
+    if (! item.importing && item.id == openedId && openedId.isNotEmpty())
+    {
+        // The sound shown in the sample editor.
+        g.setColour(theme::accent);
+        g.fillRoundedRectangle(juce::Rectangle<float>(5.0f, 8.0f, 3.0f, static_cast<float>(height) - 16.0f), 1.5f);
+    }
     auto iconSlot = area.removeFromLeft(14);
     if (playing)
     {
@@ -283,8 +297,26 @@ void BrowserPanel::listBoxItemClicked(int row, const juce::MouseEvent& e)
         return;
     if (e.mods.isPopupMenu())
         showCategoryMenu(item);
+    else if (sawDoubleClick && juce::Time::getMillisecondCounter() - lastDoubleClickMs < 600)
+        sawDoubleClick = false; // the mouse-up that ends a double-click: the sound is being opened, not auditioned
     else if (onRowClicked)
+    {
+        sawDoubleClick = false;
         onRowClicked(item.id);
+    }
+}
+
+void BrowserPanel::listBoxItemDoubleClicked(int row, const juce::MouseEvent& e)
+{
+    if (! juce::isPositiveAndBelow(row, static_cast<int>(currentRows.size())) || e.mods.isPopupMenu())
+        return;
+    const auto& item = currentRows[static_cast<size_t>(row)];
+    if (item.importing || item.id.isEmpty())
+        return;
+    sawDoubleClick = true;
+    lastDoubleClickMs = juce::Time::getMillisecondCounter();
+    if (onRowOpened)
+        onRowOpened(item.id);
 }
 
 void BrowserPanel::showCategoryMenu(const BrowserRow& item)
@@ -293,8 +325,12 @@ void BrowserPanel::showCategoryMenu(const BrowserRow& item)
     menu.addItem(1, "Loop", true, item.category == model::Category::loop);
     menu.addItem(2, "One-shot", true, item.category == model::Category::oneShot);
     menu.addItem(3, "Recording", true, item.category == model::Category::recording);
+    menu.addSeparator();
+    menu.addItem(10, "Open in sample editor");
     menu.showMenuAsync({}, [this, id = item.id](int choice) {
-        if (choice != 0 && onCategoryChosen)
+        if (choice == 10)
+            openInEditor(id);
+        else if (choice != 0 && onCategoryChosen)
             onCategoryChosen(id, choice == 1 ? model::Category::loop : choice == 2 ? model::Category::oneShot : model::Category::recording);
     });
 }

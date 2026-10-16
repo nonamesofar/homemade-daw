@@ -227,7 +227,7 @@ Use case: play a clip on YouTube (or any app), press Record in the DAW, and get 
  │                                                                                             │
  │  AUDIO THREAD (device callback, MMCSS "Pro Audio" on Windows / audio workgroup on macOS)  │
  │   └─ Tracktion playback graph: clips, plugins (Maschine etc.), racks, mixer, master,       │
- │      click, SlicePadPlugin (ours) ◄── AbstractFifo pad events from the UI                  │
+ │      click; a second, preview edit with SlicePadPlugin (ours) ◄── pad events (AbstractFifo)│
  │                                                                                             │
  │  BACKGROUND                                                                                 │
  │   ├─ Tracktion job threads: proxy renders (warp/reverse), thumbnails, file caching         │
@@ -439,9 +439,9 @@ Audio files are never modified. Every edit is metadata in the edit. Derived rend
 
 ### 7.4 Pads (E11, E12, E18)
 - 16 pads per bank, MPC layout (pad 1 bottom-left = `Z`). Bank buttons A to P when there are more than 16 slices.
-- **`SlicePadPlugin`** is our own `te::Plugin` subclass on a hidden pad track routed to the master. It holds a pool of 16 voices. Each voice plays a **slice render buffer** (pitch, reverse and gain baked in) with the play mode's envelope. Oldest voice is stolen with a 3 ms fade; retriggering the same pad chokes its previous voice.
+- **`SlicePadPlugin`** is our own `te::Plugin` subclass (a thin shell around the Tracktion-free `PadMixer`, which holds the real-time code) on the one track of a **separate preview edit** (`PadEngine`), not on a hidden track of the project edit. The preview edit is made when the first sound is opened in the sample editor, stays allocated until the project closes and plays to the same device as the project edit, which Tracktion mixes (M3 spike: the plugin is processed while that edit's transport is stopped and is heard next to a playing project). Reason: a hidden pad track would be saved with the project, has to be stripped on save, can enter undo, is affected by solo and appears in renders; the cost is that pads do not pass through the project's master volume until M5 revisits it (pads as an instrument on a project track, recording pad playing as MIDI). It holds a pool of 16 voices. Each voice plays a **slice render buffer** (pitch, reverse and gain baked in) with the play mode's envelope. Oldest voice is stolen with a 3 ms fade; retriggering the same pad chokes its previous voice.
 - **Triggering:** the UI pushes `{padOn/padOff, sliceKey, mode}` into an `AbstractFifo`. From M5 the plugin also accepts **MIDI notes** (notes 36 to 51 map to pads 1 to 16 of the current bank), so a MIDI pad controller can play the slices and pad performances can be recorded as MIDI clips.
-- **Slice renders:** a param change re-renders the slice on the `ThreadPool` (Signalsmith for pitch, `std::reverse` for reverse; typically under 20 ms for slices under 2 s). Until the new buffer arrives, the old one keeps playing.
+- **Slice renders:** a param change re-renders the slice on a worker (`render::RenderScheduler`; Signalsmith for pitch, `std::reverse` for reverse, r8brain to the device rate; measured about 50 ms for a 2 s stereo slice at +7 st, plus about 20 ms when the sound's rate differs from the device's, so the promise is "heard within 100 ms for slices up to 2 s"). Until the new buffer arrives, the old one keeps playing. The finished buffers are published to the audio thread as one `SliceBank` (single pointer exchange); references go back through a garbage FIFO so the last release is off the audio thread. A 200 MB budget per sound drops the least recently played renders, which are made again on demand.
 - **Keyboard scope:** pad keys are active only while the Sample editor has focus and no text field is focused. JUCE gives key-down via `keyPressed` and key-up via `keyStateChanged(false)` + `KeyPress::isKeyCurrentlyDown`; the `KeyboardRouter` tracks which pad keys are held and ignores auto-repeat. Losing focus sends all-pads-off.
 - Velocity: 1.0 for mouse and keyboard; MIDI velocity from M5.
 

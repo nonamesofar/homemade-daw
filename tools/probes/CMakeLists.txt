@@ -12,3 +12,8 @@ juce_add_console_app(CaptureProbe PRODUCT_NAME "Capture Probe")
 target_sources(CaptureProbe PRIVATE CaptureProbe.cpp)
 target_link_libraries(CaptureProbe PRIVATE sampler_engine_testkit sampler_engine sampler_platform)
 sampler_target_debuggable(CaptureProbe)
+
+juce_add_console_app(PadProbe PRODUCT_NAME "Pad Probe")
+target_sources(PadProbe PRIVATE PadProbe.cpp)
+target_link_libraries(PadProbe PRIVATE sampler_engine_testkit sampler_engine sampler_platform sampler_render)
+sampler_target_debuggable(PadProbe)

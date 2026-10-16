@@ -75,6 +75,17 @@ public:
 
     /** Called when the user clicks a ready sound. */
     std::function<void(const juce::String& sourceId)> onRowClicked;
+    /** Called when the user double-clicks a ready sound or chooses "Open in sample editor" from its menu. */
+    std::function<void(const juce::String& sourceId)> onRowOpened;
+    /** The sound open in the sample editor gets a mark on its row (empty for none). */
+    void setOpenId(const juce::String& sourceId);
+    const juce::String& openId() const { return openedId; }
+    /** The context menu entry, as chosen (for tests; the menu itself is shown asynchronously). */
+    void openInEditor(const juce::String& sourceId)
+    {
+        if (onRowOpened)
+            onRowOpened(sourceId);
+    }
     /** Called when the user picks a category in a row's context menu. */
     std::function<void(const juce::String& sourceId, model::Category)> onCategoryChosen;
 
@@ -86,6 +97,7 @@ private:
     void paintListBoxItem(int row, juce::Graphics&, int width, int height, bool selected) override;
     juce::String getTooltipForRow(int row) override;
     void listBoxItemClicked(int row, const juce::MouseEvent&) override;
+    void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override;
     /** Dragging a ready sound gives "sample:<id>" (dropped on the timeline it becomes a clip). */
     juce::var getDragSourceDescription(const juce::SparseSet<int>&) override;
 
@@ -115,5 +127,8 @@ private:
     std::list<juce::String> recentlyDrawn; // front = most recent
     std::vector<BrowserRow> currentRows;
     juce::String playingId;
+    juce::String openedId;
+    juce::uint32 lastDoubleClickMs = 0;
+    bool sawDoubleClick = false;
 };
 } // namespace sampler::ui

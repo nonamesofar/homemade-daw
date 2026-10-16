@@ -1,5 +1,7 @@
 #pragma once
 
+#include "model/SliceSet.h"
+
 #include <juce_data_structures/juce_data_structures.h>
 
 #include <functional>
@@ -25,8 +27,14 @@ SAMPLER_MODEL_ID(frames);
 SAMPLER_MODEL_ID(category);
 SAMPLER_MODEL_ID(recordedFrom);
 SAMPLER_MODEL_ID(recordedAt);
+SAMPLER_MODEL_ID(bpm);
+SAMPLER_MODEL_ID(beatOffset);
 #undef SAMPLER_MODEL_ID
 } // namespace ids
+
+/** The range of a typed or corrected tempo (spec: 20 to 999 BPM). */
+constexpr double minCorrectedBpm = 20.0;
+constexpr double maxCorrectedBpm = 999.0;
 
 /** The schema version this build writes and the newest one it can read. Bump on a breaking change (with a migration). */
 constexpr int currentSchemaVersion = 1;
@@ -86,6 +94,39 @@ public:
     double lengthSeconds() const { return sampleRate() > 0.0 ? static_cast<double>(frames()) / sampleRate() : 0.0; }
 
     void setCategory(Category, juce::UndoManager*);
+
+    //==============================================================================
+    // The user's corrections of what the analysis found (tempo, first beat). Present only when the user set them; the
+    // analysis results themselves live in the cache folder, not in the project.
+    bool hasTempoCorrection() const { return state.hasProperty(ids::bpm); }
+    /** The corrected tempo in BPM, or 0 if the user did not set one. */
+    double tempoCorrection() const { return hasTempoCorrection() ? static_cast<double>(state[ids::bpm]) : 0.0; }
+    bool hasBeatOffsetCorrection() const { return state.hasProperty(ids::beatOffset); }
+    /** The corrected first beat as a frame of the sound, or -1 if the user did not set one. */
+    juce::int64 beatOffsetCorrection() const { return hasBeatOffsetCorrection() ? static_cast<juce::int64>(state[ids::beatOffset]) : -1; }
+    void setTempoCorrection(double bpm, juce::UndoManager*);
+    void setBeatOffsetCorrection(juce::int64 frame, juce::UndoManager*);
+
+    //==============================================================================
+    // The slices of the sound (a SLICESET child): mode, grid, sensitivity, slice points and each slice's pad settings.
+    // A sound that was never chopped has none and reads as one slice with the defaults.
+    bool hasSliceSet() const { return model::hasSliceSet(state); }
+    SliceSetData sliceSet() const
+    {
+        auto data = readSliceSet(state);
+        dropMarkersPastEnd(data, frames());
+        return data;
+    }
+    /** The slice set as saved, unrepaired (to look for violations). */
+    SliceSetData rawSliceSet() const { return readSliceSet(state, false); }
+    void setSliceSet(const SliceSetData& data, juce::UndoManager* undo) { writeSliceSet(state, data, undo); }
+
+    /** The correction if the user set one, else what the analysis found (0 or -1 if neither exists). */
+    double effectiveBpm(double analysedBpm) const { return hasTempoCorrection() ? tempoCorrection() : analysedBpm; }
+    juce::int64 effectiveBeatOffset(juce::int64 analysedFirstBeat) const
+    {
+        return hasBeatOffsetCorrection() ? beatOffsetCorrection() : analysedFirstBeat;
+    }
 
 private:
     juce::ValueTree state;

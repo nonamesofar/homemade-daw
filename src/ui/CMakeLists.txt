@@ -11,9 +11,17 @@ add_library(sampler_ui STATIC
     widgets/Toast.cpp widgets/Toast.h
     widgets/WidgetMath.cpp widgets/WidgetMath.h
     widgets/Widgets.cpp widgets/Widgets.h
-    widgets/WidgetGallery.cpp widgets/WidgetGallery.h)
+    widgets/WidgetGallery.cpp widgets/WidgetGallery.h
+    UiState.h
+    sampleeditor/EditorMath.cpp sampleeditor/EditorMath.h
+    sampleeditor/WaveformPeaks.cpp sampleeditor/WaveformPeaks.h
+    sampleeditor/WaveformView.cpp sampleeditor/WaveformView.h
+    sampleeditor/SliceStrip.cpp sampleeditor/SliceStrip.h
+    sampleeditor/SlicePanel.cpp sampleeditor/SlicePanel.h
+    sampleeditor/PadGrid.cpp sampleeditor/PadGrid.h
+    sampleeditor/SampleEditorView.cpp sampleeditor/SampleEditorView.h)
 target_include_directories(sampler_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # The UI reads the arrangement through the engine's Tracktion-free facade and edits only through commands.
-target_link_libraries(sampler_ui PUBLIC sampler_juce sampler_model sampler_commands sampler_engine sampler_resources)
+target_link_libraries(sampler_ui PUBLIC sampler_juce sampler_model sampler_commands sampler_engine sampler_io sampler_resources)
 sampler_target_debuggable(sampler_ui)
 sampler_target_warnings(sampler_ui)

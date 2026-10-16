@@ -41,6 +41,7 @@ MainComponent::MainComponent(AppController& appController) : controller(appContr
 
     browserPanel.setThumbnailFactory([this](const juce::String& id, juce::Component& target) { return controller.makeThumbnail(id, target); });
     browserPanel.onRowClicked = [this](const juce::String& id) { controller.toggleAudition(id); };
+    browserPanel.onRowOpened = [this](const juce::String& id) { openEditor(id); };
     browserPanel.onCategoryChosen = [this](const juce::String& id, model::Category category) {
         if (controller.hasProject())
             controller.commandService().apply(std::make_unique<commands::SetSourceCategory>(id, category));
@@ -53,6 +54,7 @@ MainComponent::MainComponent(AppController& appController) : controller(appContr
     controller.onProjectClosing = [this] { dropProjectViews(); };
     controller.onProjectAttached = [this] { buildProjectViews(); };
     controller.addChangeListener(this);
+    juce::Desktop::getInstance().addFocusChangeListener(this);
     selectionModel.onChange = [this] { selectionChanged(); };
     installDialogs();
 
@@ -70,6 +72,7 @@ MainComponent::MainComponent(AppController& appController) : controller(appContr
 MainComponent::~MainComponent()
 {
     vblank.reset();
+    juce::Desktop::getInstance().removeFocusChangeListener(this);
     galleryWindow.reset();
     setApplicationCommandManagerToWatch(nullptr);
     controller.removeChangeListener(this);
@@ -138,16 +141,98 @@ void MainComponent::buildProjectViews()
                                                             return controller.makeThumbnail(id, target);
                                                         });
     addAndMakeVisible(*clipInspector);
+    clipInspector->onOpenEditor = [this](const juce::String& id) { openEditor(id); };
+
+    ui::EditorContext editorContext{project.samplerState(),
+                                    controller.commandService(),
+                                    controller.analyser(),
+                                    [this] { return controller.project().bundleDir(); },
+                                    [this](const juce::String& id) { controller.toggleAudition(id); },
+                                    [this] { return controller.playingId(); },
+                                    [this] { return controller.auditionPositionSeconds(); },
+                                    [this] { closeEditor(); },
+                                    [this](const juce::String& id) { controller.pads().open(id); },
+                                    [this] { controller.pads().close(); },
+                                    [this](int selected) { controller.pads().refresh(selected); },
+                                    [this](int slice) { controller.pads().padDown(slice); },
+                                    [this](int slice) { controller.pads().padUp(slice); },
+                                    [this] { controller.pads().allOff(); },
+                                    [this](int slice) { return controller.pads().isSounding(slice); },
+                                    [this] { return controller.project().transport().positionBeats(); },
+                                    [this](const std::vector<juce::String>& clipIds, const juce::String& trackId) {
+                                        closeEditor();
+                                        selectionModel.setTrack(trackId);
+                                        selectionModel.setClips(clipIds);
+                                    }};
+    editorView = std::make_unique<ui::SampleEditorView>(editorContext, viewState);
+    addChildComponent(*editorView);
+    headerBar->onArrangeChosen = [this] { closeEditor(); };
     resized();
 }
 
 void MainComponent::dropProjectViews()
 {
     // These hold references into the project: they go before it does.
+    releaseAllPads();
+    if (editorView != nullptr)
+        editorView->close();
+    browserPanel.setOpenId({});
+    viewState.clear();
+    editorView.reset();
     clipInspector.reset();
     arrangementView.reset();
     headerBar.reset();
     copied.clear();
+}
+
+void MainComponent::openEditor(const juce::String& sourceId)
+{
+    if (editorView == nullptr || ! controller.hasProject())
+        return;
+    const auto source = model::SamplerState(controller.project().samplerState()).findSourceById(sourceId);
+    if (! source.isValid())
+        return;
+    if (! controller.project().bundleDir().getChildFile(source.decoded()).existsAsFile())
+    {
+        toast.show("The sound's file is missing", ui::Toast::Kind::error); // as the clip inspector does not offer it either
+        return;
+    }
+    controller.stopAudition(); // a click that started the browser's audition before the double-click ends it
+    editorView->open(sourceId);
+    if (! editorView->isOpen())
+        return;
+    if (arrangementView != nullptr)
+        arrangementView->setVisible(false);
+    if (clipInspector != nullptr)
+        clipInspector->setVisible(false);
+    editorView->setVisible(true);
+    editorView->grabKeyboardFocus(); // the pad keys play while the editor has focus
+    if (headerBar != nullptr)
+        headerBar->setShowingEditor(true);
+    browserPanel.setOpenId(sourceId);
+    resized();
+    commands.commandStatusChanged();
+}
+
+void MainComponent::closeEditor()
+{
+    if (editorView == nullptr || ! editorView->isOpen())
+        return;
+    releaseAllPads();
+    editorView->close();
+    editorView->setVisible(false);
+    if (arrangementView != nullptr)
+        arrangementView->setVisible(true);
+    if (clipInspector != nullptr)
+    {
+        clipInspector->setVisible(true);
+        clipInspector->refresh();
+    }
+    if (headerBar != nullptr)
+        headerBar->setShowingEditor(false);
+    browserPanel.setOpenId({});
+    resized();
+    commands.commandStatusChanged();
 }
 
 void MainComponent::selectionChanged()
@@ -178,6 +263,14 @@ void MainComponent::refresh()
     }
     if (headerBar != nullptr)
         headerBar->refresh();
+    if (editorView != nullptr && editorView->isOpen())
+    {
+        // Undo of the import that made the open sound takes it away: the arrangement is shown again.
+        if (! model::SamplerState(controller.project().samplerState()).findSourceById(editorView->sourceId()).isValid())
+            closeEditor();
+        else
+            editorView->refresh();
+    }
     if (arrangementView != nullptr)
         arrangementView->lanes().repaint(); // placeholders of running imports
     if (auto* window = getTopLevelComponent())
@@ -187,10 +280,43 @@ void MainComponent::refresh()
     repaint(getLocalBounds().withHeight(menuBarHeight + headerHeight));
 }
 
+void MainComponent::releaseAllPads()
+{
+    for (const auto pad : keyRouter.releaseAllPads())
+        if (editorView != nullptr)
+            editorView->padKeyUp(pad);
+    if (editorView != nullptr && editorView->isOpen())
+        editorView->allPadsOff();
+}
+
+bool MainComponent::editorHasFocus() const
+{
+    if (editorFocusProbe)
+        return editorFocusProbe();
+    if (editorView == nullptr || ! editorView->isOpen() || ! editorView->isShowing())
+        return false;
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    return focused != nullptr && (focused == editorView.get() || editorView->isParentOf(focused));
+}
+
+void MainComponent::globalFocusChanged(juce::Component*)
+{
+    // The editor lost keyboard focus (another window, the browser, a text field elsewhere): no key-up may be missed.
+    if (editorView != nullptr && editorView->isOpen() && ! editorHasFocus())
+        releaseAllPads();
+}
+
 void MainComponent::tick(double elapsedMs)
 {
+    const bool active = appActiveProbe ? appActiveProbe() : juce::Process::isForegroundProcess();
+    if (wasAppActive && ! active)
+        releaseAllPads(); // the app went to the background
+    wasAppActive = active;
+
     if (headerBar != nullptr)
         headerBar->tick(elapsedMs);
+    if (editorView != nullptr && editorView->isOpen())
+        editorView->tick(elapsedMs);
 }
 
 void MainComponent::installDialogs()
@@ -270,6 +396,8 @@ void MainComponent::resized()
     if (headerBar != nullptr)
         headerBar->setBounds(header);
     browserPanel.setBounds(area.removeFromLeft(browserWidth));
+    if (editorView != nullptr)
+        editorView->setBounds(area);
     if (clipInspector != nullptr)
         clipInspector->setBounds(area.removeFromBottom(std::min(inspectorHeight, area.getHeight() / 3)));
     if (arrangementView != nullptr)
@@ -370,8 +498,16 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
     ui::KeyboardRouter::Focus focus;
     focus.dialogOpen = juce::Component::getCurrentlyModalComponent() != nullptr;
     focus.textFieldFocused = dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) != nullptr;
-    if (ui::KeyboardRouter::route(key, focus) == ui::KeyboardRouter::Route::leaveToFocused)
+    focus.sampleEditorFocused = editorHasFocus();
+    const auto route = ui::KeyboardRouter::route(key, focus);
+    if (route == ui::KeyboardRouter::Route::leaveToFocused)
         return false;
+    if (route == ui::KeyboardRouter::Route::pads)
+    {
+        if (keyRouter.padKeyPressed(key) && editorView != nullptr)
+            editorView->padKeyDown(ui::KeyboardRouter::padForKey(key));
+        return true; // a held key repeats nothing
+    }
     if (! keyRouter.acceptsTransportKey(key))
         return true; // an auto-repeat of a held transport key
     return commands.getKeyMappings()->keyPressed(key, this);
@@ -380,7 +516,11 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
 bool MainComponent::keyStateChanged(bool)
 {
     keyRouter.keysChanged();
-    return false;
+    const auto released = keyRouter.padKeysReleased();
+    for (const auto pad : released)
+        if (editorView != nullptr)
+            editorView->padKeyUp(pad);
+    return ! released.empty();
 }
 
 //==============================================================================
@@ -529,7 +669,9 @@ void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandI
     const auto shift = juce::ModifierKeys::shiftModifier;
     const bool project = controller.hasProject();
     const bool gesture = project && controller.commandService().isGestureOpen();
-    const bool hasSelection = project && ! selectionModel.isEmpty();
+    // While the sample editor replaces the arrangement, the clip and track commands have nothing on screen to act on.
+    const bool arrangementShown = ! isEditorOpen();
+    const bool hasSelection = project && arrangementShown && ! selectionModel.isEmpty();
     switch (id)
     {
         case newCommand:
@@ -586,7 +728,7 @@ void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandI
             break;
         case pasteCommand:
             info.setInfo("Paste", "Pastes at the playhead on the selected track", "Edit", 0);
-            info.setActive(project && ! copied.empty() && ! gesture);
+            info.setActive(project && arrangementShown && ! copied.empty() && ! gesture);
             info.addDefaultKeypress('v', mod);
             break;
         case duplicateCommand:
@@ -596,28 +738,28 @@ void MainComponent::getCommandInfo(juce::CommandID id, juce::ApplicationCommandI
             break;
         case splitCommand:
             info.setInfo("Split", "Splits clips at the playhead", "Edit", 0);
-            info.setActive(project && ! gesture && ! clipsUnderPlayhead(hasSelection).empty());
+            info.setActive(project && arrangementShown && ! gesture && ! clipsUnderPlayhead(hasSelection).empty());
             info.addDefaultKeypress('e', mod);
             break;
         case deleteCommand:
             info.setInfo("Delete", "Deletes the selected clips (or the selected track)", "Edit", 0);
-            info.setActive(project && ! gesture && (hasSelection || selectionModel.isHeaderSelected()));
+            info.setActive(project && arrangementShown && ! gesture && (hasSelection || selectionModel.isHeaderSelected()));
             info.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
             info.addDefaultKeypress(juce::KeyPress::backspaceKey, 0);
             break;
         case selectAllCommand:
             info.setInfo("Select All", "Selects every clip", "Edit", 0);
-            info.setActive(project && controller.project().arrangement().numClips() > 0);
+            info.setActive(project && arrangementShown && controller.project().arrangement().numClips() > 0);
             info.addDefaultKeypress('a', mod);
             break;
         case newTrackCommand:
             info.setInfo("New Audio Track", "Adds an audio track after the selected one", "Track", 0);
-            info.setActive(project && ! gesture);
+            info.setActive(project && arrangementShown && ! gesture);
             info.addDefaultKeypress('t', mod);
             break;
         case deleteTrackCommand:
             info.setInfo("Delete Track", "Deletes the selected track with its clips", "Track", 0);
-            info.setActive(project && ! gesture && controller.project().arrangement().track(selectionModel.track()).has_value());
+            info.setActive(project && arrangementShown && ! gesture && controller.project().arrangement().track(selectionModel.track()).has_value());
             break;
         case recordCommand:
             info.setInfo("Record", "Records onto the armed tracks, or ends the recording", "Transport", 0);
@@ -685,6 +827,29 @@ bool MainComponent::perform(const InvocationInfo& info)
     auto& service = controller.commandService();
     if (service.isGestureOpen() && info.commandID != playStopCommand && info.commandID != returnToStartCommand)
         return true; // nothing edits the project while a drag is in progress
+    if (isEditorOpen())
+    {
+        // The arrangement is hidden: its clip, track and zoom commands (and their keys, like Delete, M and Z) do nothing.
+        switch (info.commandID)
+        {
+            case cutCommand:
+            case copyCommand:
+            case pasteCommand:
+            case duplicateCommand:
+            case splitCommand:
+            case deleteCommand:
+            case selectAllCommand:
+            case newTrackCommand:
+            case deleteTrackCommand:
+            case loopToSelectionCommand:
+            case muteCommand:
+            case soloCommand:
+            case zoomToSelectionCommand:
+            case zoomToSongCommand:
+            case playFromSelectionCommand: return true;
+            default: break;
+        }
+    }
 
     switch (info.commandID)
     {

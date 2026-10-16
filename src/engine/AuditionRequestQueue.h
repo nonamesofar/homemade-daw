@@ -52,6 +52,8 @@ public:
         return false;
     }
 
+    /** Forgets a waiting request (a double-click opened the sound instead of auditioning it). */
+    void cancel() { pending.reset(); }
     bool hasPending() const { return pending.has_value(); }
     juce::String pendingId() const { return pending.has_value() ? pending->sourceId : juce::String(); }
 

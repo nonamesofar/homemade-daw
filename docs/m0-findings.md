@@ -96,3 +96,11 @@ Reading the numbers: the whole beats path (analysis plus placement) is far cheap
 | M2b-d | `GetStreamLatency` of loopback (build 19045, Jabra Link 380 headset) | 0.00 ms for endpoint loopback and for process loopback. |
 | M2b-e | A click written by a JUCE output callback, heard by endpoint loopback | 41.2 ms later (median of 10, min 40.7, max 41.4): used as the constant offset of System takes. (`CaptureProbe latency`) |
 | M2b-f | Process loopback follows the Windows default device | Not measured (needs two playback devices and a manual switch while recording). Process loopback is used only for the default device. |
+
+## M3 spike (2026-10-13, `PadProbe`)
+
+| # | Question | Result |
+|---|---|---|
+| M3-a | A plugin on a track of a preview edit gets `applyToBuffer` while that edit's transport is stopped, and is heard while another edit plays to the same device | Pass. 50 blocks in 0.5 s with nothing playing and a pad hit sounding 31 blocks in 0.3 s (480-frame buffer at 48 kHz). Loopback capture of the device output: the 440 Hz tone from the other edit stays at 0.283 and the 1 kHz pad slice goes from 0.000 to 0.400. No keep-playing fallback needed. |
+| M3-b | Signalsmith Stretch (default preset) at +7 st on a 2 s stereo slice | 50 ms (release), 66 ms (debug); the design budget was 20 ms (the stretcher runs at about 40x real time, as in the M0 benchmark). Output length equals input length. Attack of the first kick: 22 frames (0.5 ms) late, rise time 10 to 90 % 0.50 ms against 1.25 ms in the source, so no smear. The 100 ms promise of the spec holds; the budget in design D6 is now 100 ms. |
+| M3-c | r8brain 48 -> 44.1 kHz on a 2 s slice | 21 ms with CDSPResampler24 (19 ms with the 16-bit variant, not worth the quality), 88200 frames out, a 1 kHz sine measures 1000.0 Hz. |

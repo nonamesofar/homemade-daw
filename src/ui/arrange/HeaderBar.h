@@ -137,6 +137,15 @@ public:
     void togglePlay();
     void returnToStart();
 
+    /** The sample editor replaces the arrangement: the Session / Arrange toggle then shows neither as chosen. */
+    void setShowingEditor(bool showing)
+    {
+        showingEditor = showing;
+        viewToggle.setSelected(showing ? -1 : 1);
+    }
+    /** The user chose Arrange in the toggle (used to leave the sample editor). */
+    std::function<void()> onArrangeChosen;
+
     SegmentedControl viewToggle;
     TransportButton stopButton{"Stop", TransportButton::Icon::stop}, playButton{"Play", TransportButton::Icon::play},
         recordButton{"Record", TransportButton::Icon::record};
@@ -156,6 +165,7 @@ private:
     void showSnapMenu();
 
     HeaderContext ctx;
+    bool showingEditor = false;
     std::unique_ptr<commands::SetTempo> tempoGesture; // one command for the whole tempo drag
 };
 } // namespace sampler::ui

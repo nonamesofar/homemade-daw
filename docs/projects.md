@@ -9,7 +9,7 @@ Name.sdaw/
     originals/              exact copies of the files you imported
     recordings/             the takes you recorded onto tracks (rec-<date>-<time>-<n>.wav), used as they are
     <name>-<hash>.wav       the decoded working copies the app plays (32-bit float WAV)
-  cache/                    disposable: waveform pictures, reversed-clip renders and other generated files
+  cache/                    disposable: waveform pictures, reversed-clip renders, the analysis of each sound and other generated files
 ```
 
 The names of copied files are a cleaned-up form of the original name plus the first 8 characters of a content hash, for example `drums-loop-120-1a2b3c4d.wav`. Your own files are never changed: the app only reads them and keeps its own copy.
@@ -49,12 +49,43 @@ You arm a track (R in its header), choose what it records (its **input**) and pr
 - A take recorded in an untitled project is inside the untitled folder and moves with the first Save. Save As is refused while recording.
 - If a recorded device is not there when you reopen a project, the track records the default device instead and its header says so.
 
+## Slices and tempo corrections (since M3)
+
+The sample editor saves, for each sound you chopped or corrected, inside the project file:
+
+- **Slices**: how the sound was chopped (Beat, Transient or Manual), the grid (1/4, 1/8, 1/16, 1/32) and the Sensitivity last used, the slice points (positions in the sound, in samples) and, for each slice, its pitch, gain, Reverse and play mode (One-shot, Gate, Loop). A sound that was never chopped has none of this and is one slice. The slices cover the whole sound from its first sample to its last, at most 256 of them, each at least 5 ms long.
+- **Tempo and first beat**: only what you typed or dragged (the tempo field, half and double, the "1.1.1" marker). What the app worked out by itself is not saved in the project (see the cache folder below), so a correction survives deleting `cache/`.
+
+The audio files are never changed by any of this: slices are only marks and settings.
+
+## Clips made from slices (since M3)
+
+"Slices to new track" puts a new track at the end of the track list, named after the sound, with one clip per slice laid back to back from the playhead. The clips are copies: they are ordinary clips of the sound (each plays its slice's part with the slice's gain and direction) and do not change when you edit the slices afterwards. Each remembers which sound and slice it came from.
+
 ## The cache folder
 
-`cache/` holds only things the app can make again (waveform pictures and the renders of reversed clips now; stretched renders and similar later). You can delete it while the app is closed; the next time you open the project it fills up again and nothing is lost.
+`cache/` holds only things the app can make again (waveform pictures, the renders of reversed clips and the analysis of each sound now; stretched renders and similar later). You can delete it while the app is closed; the next time you open the project it fills up again and nothing is lost.
+
+- `cache/analysis/<key>.json` is the analysis of one sound: the hits it found with their strength, the best three tempo guesses and the first beat. The key is the first 16 characters of the sound's content hash (a recording uses a hash of its file's name, size and date). The file also says which version of the analysis made it; after an update of the app the sound is analysed again. Opening a project analyses nothing: a sound is analysed when it is imported or recorded, or when it is opened in the sample editor without a usable file here (the editor says "Analysing..." meanwhile). Analysis never changes the project, marks it as unsaved or adds an undo step.
 
 ## For developers
 
 The `<SAMPLER schemaVersion="1">` section has one `SOURCE` node per imported sound (id, name, relative paths of the original and the decoded copy, content hash, sample rate, channels, frames, category). All paths are relative to the bundle. A newer `schemaVersion` than the app knows is refused; older ones are upgraded in memory by the steps in `src/model/Migrations.cpp` (none yet).
+
+M3 adds, all optional so the schema version stays 1: on a `SOURCE` node the user's corrections `bpm` (20 to 999) and `beatOffset` (a frame of the sound), and a `SLICESET` child:
+
+```xml
+<SOURCE id="src_1" name="break" ... bpm="92.0" beatOffset="4410">
+  <SLICESET mode="beat" division="1/4" sensitivity="50.0" markers="4410 33810">
+    <SLICE pitch="0.0" gainDb="0.0" reverse="0" playMode="oneshot"/>   <!-- one SLICE per slice: markers + 1 -->
+    <SLICE pitch="7.0" gainDb="-3.5" reverse="1" playMode="gate"/>
+    <SLICE pitch="0.0" gainDb="0.0" reverse="0" playMode="oneshot"/>
+  </SLICESET>
+</SOURCE>
+```
+
+`markers` are frames of the sound at its own sample rate, strictly increasing and never 0 (the first slice always starts at 0); `mode` is `beat`, `transient` or `manual`; `division` is `1/4`, `1/8`, `1/16` or `1/32`; `playMode` is `oneshot`, `gate` or `loop`. Adding a point splits a slice and both halves keep its settings; removing a point merges the two and keeps the left slice's settings; choosing Beat, Transient or Auto-slice, or another division, resets every slice to the defaults. `findInvariantViolation` checks the slice set after every command in debug builds. The analysis result (`cache/analysis/<key>.json`: `algorithmVersion`, `sampleRate`, `frames`, `firstBeatFrame`, `tempo` candidates, `onsets` as `[frame, strength]`) is derived data written by `io::AnalysisService`; the effective tempo and first beat are the correction if there is one, else the analysis.
+
+A clip made from a slice carries three more `sampler_*` properties on Tracktion's clip node: `sampler_originSource` (the sound's id), `sampler_originSlice` (the slice's index at the time) and `sampler_pitch` (the slice's pitch in semitones: stored for the warp work of M4, not heard yet).
 
 Arrangement data is stored by Tracktion (tracks, clips, tempo, transport) with our extras as `sampler_*` properties on its nodes: a clip's `sampler_sourceId` names its `SOURCE`. Everything added in M2 and M2b is optional, so the schema version stays 1. M2b adds: the track property `sampler_input` on Tracktion's track node (`system:default` is the default and is not stored; `system:<endpoint id>`, `master`, `track:<track item id>`), and on a SOURCE node of a take the optional `recordedFrom` (for example `System audio (Speakers)`, `Master` or a track name) and `recordedAt` (ISO 8601 local time). A take's `original` and `decoded` are the same `audio/recordings/...` path. While a recording runs, the edit holds taps (plugins of type `samplerTap`, marked `sampler_tap`) on the tapped tracks or the master; they are added and removed without the undo manager and `saveEditAtomically` leaves them out of the file. Dirty state comes from the undo history (`CommandService::historyToken`), not from watching the file.

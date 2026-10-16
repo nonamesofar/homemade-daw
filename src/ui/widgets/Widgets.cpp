@@ -48,8 +48,8 @@ void SegmentedControl::setItems(const juce::StringArray& newItems)
 
 void SegmentedControl::setSelected(int index, bool notify)
 {
-    if (! juce::isPositiveAndBelow(index, items.size()))
-        return;
+    if (index < -1 || index >= items.size())
+        return; // -1 shows no segment as chosen
     const bool changed = index != selectedIndex;
     selectedIndex = index;
     repaint();
@@ -114,6 +114,9 @@ juce::String ValueField::text() const { return formatter ? formatter(value) : ju
 
 bool ValueField::commitText(const juce::String& typed)
 {
+    // The shown text is a rounded view of the value: committing it unchanged must not turn it into the rounded value.
+    if (formatter && typed.trim() == text())
+        return true;
     if (parser)
     {
         const auto parsed = parser(typed);

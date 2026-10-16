@@ -13,6 +13,9 @@ namespace sampler::engine
 namespace
 {
 const juce::Identifier sourceIdProperty("sampler_sourceId");
+const juce::Identifier originSourceProperty("sampler_originSource");
+const juce::Identifier originSliceProperty("sampler_originSlice");
+const juce::Identifier pitchProperty("sampler_pitch");
 const juce::Identifier loopOnProperty("sampler_loopOn");
 const juce::Identifier inputProperty("sampler_input");
 
@@ -98,6 +101,9 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
         info.id = c.itemID.toString();
         info.trackId = trackId;
         info.sourceId = c.state[sourceIdProperty].toString();
+        info.originSourceId = c.state[originSourceProperty].toString();
+        info.originSlice = c.state.hasProperty(originSliceProperty) ? static_cast<int>(c.state[originSliceProperty]) : -1;
+        info.pitch = c.state.hasProperty(pitchProperty) ? static_cast<double>(c.state[pitchProperty]) : 0.0;
         info.name = c.getName();
         const auto pos = c.getPosition();
         info.startSeconds = pos.getStart().inSeconds();
@@ -456,6 +462,12 @@ juce::String Arrangement::createClip(const juce::String& trackId, const ClipSpec
         return {};
     clip->getSourceFileReference().setToDirectFileReference(spec.file, true); // relative to the edit file
     clip->state.setProperty(sourceIdProperty, spec.sourceId, impl->um());
+    if (spec.originSlice >= 0)
+    {
+        clip->state.setProperty(originSourceProperty, spec.originSourceId, impl->um());
+        clip->state.setProperty(originSliceProperty, spec.originSlice, impl->um());
+        clip->state.setProperty(pitchProperty, spec.pitch, impl->um());
+    }
     impl->prepareNewClip(*clip);
     clip->setPosition(position);
     clip->setFadeIn(tracktion::TimeDuration::fromSeconds(0.003));
