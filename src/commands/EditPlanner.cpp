@@ -41,6 +41,7 @@ void cut(std::vector<Span>& working, const Span& winner, const TimeMap& time)
             right.copyOf = s.id.isNotEmpty() ? s.id : s.copyOf;
             right.id = {};
             right.tag = -1;
+            right.cutPiece = true;
             pieces.push_back(right);
             s.length = winner.start - s.start;
         }

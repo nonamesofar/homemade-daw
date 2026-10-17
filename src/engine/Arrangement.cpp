@@ -23,6 +23,7 @@ const juce::Identifier inputProperty("sampler_input");
 const juce::Identifier warpProperty("sampler_warp");
 const juce::Identifier warpModeProperty("sampler_warpMode");
 const juce::Identifier sourceBpmProperty("sampler_sourceBpm");
+const juce::Identifier beatsBpmProperty("sampler_beatsBpm"); // the project BPM the clip's current Beats render was made for
 const juce::Identifier transposeProperty("sampler_transpose");
 const juce::Identifier loopProperty("sampler_loop");
 const juce::Identifier loopStartProperty("sampler_loopStart");
@@ -256,8 +257,42 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
         }
     }
 
-    /** Material seconds the clip's position offset stands for: timeline seconds scaled by the tempo ratio. */
-    double offsetFactor(const WarpSettings& w) const { return w.active() ? tempoBpm() / w.sourceBpm : 1.0; }
+    /** The Re-pitch speed ratio Tracktion can play: the tempo ratio, held to its limits (BPM 20..999 can ask for more). */
+    double repitchRatio(const WarpSettings& w) const
+    {
+        return juce::jlimit(te::ClipConstants::speedRatioMin, te::ClipConstants::speedRatioMax, tempoBpm() / w.sourceBpm);
+    }
+
+    /** The project BPM the Beats render a clip plays was made for; the current tempo when it was not noted. */
+    double beatsFileBpm(te::WaveAudioClip& c) const
+    {
+        const auto bpm = c.state.hasProperty(beatsBpmProperty) ? static_cast<double>(c.state[beatsBpmProperty]) : 0.0;
+        return bpm > 0.0 ? bpm : tempoBpm();
+    }
+
+    /** Material seconds the clip's position offset stands for: timeline seconds scaled by the tempo ratio. A Beats clip
+        scales by the tempo of the render it plays, which differs from the current one during a tempo drag. */
+    double offsetFactor(te::WaveAudioClip& c, const WarpSettings& w) const
+    {
+        if (! w.active())
+            return 1.0;
+        if (w.mode == WarpMode::repitch)
+            return repitchRatio(w);
+        if (w.mode == WarpMode::beats)
+            return beatsFileBpm(c) / w.sourceBpm;
+        return tempoBpm() / w.sourceBpm;
+    }
+
+    /** Seconds of the sound that a stretch of the timeline covers, given its length in timeline seconds. */
+    double coveredOf(const WarpSettings& w, double startBeats, double lengthSeconds) const
+    {
+        if (! w.active())
+            return lengthSeconds;
+        if (w.mode == WarpMode::repitch && repitchRatio(w) != tempoBpm() / w.sourceBpm)
+            return lengthSeconds * repitchRatio(w); // clamped: the beats no longer say how much of the sound plays
+        const auto endBeats = toBeats(toTime(startBeats) + tracktion::TimeDuration::fromSeconds(lengthSeconds));
+        return (endBeats - startBeats) * 60.0 / w.sourceBpm;
+    }
 
     /** Reads the content from Tracktion's state; valid while that state belongs to the current tempo. */
     Content contentOf(te::WaveAudioClip& c) const
@@ -268,8 +303,8 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
         Content content;
         content.startBeats = toBeats(pos.getStart());
         // A looped clip plays from the loop's start; its position offset is how far into the loop it begins.
-        content.offset = pos.getOffset().inSeconds() * offsetFactor(w) + (loop.on ? loop.start : 0.0);
-        content.covered = w.active() ? (toBeats(pos.getEnd()) - content.startBeats) * 60.0 / w.sourceBpm : pos.getLength().inSeconds();
+        content.offset = pos.getOffset().inSeconds() * offsetFactor(c, w) + (loop.on ? loop.start : 0.0);
+        content.covered = coveredOf(w, content.startBeats, pos.getLength().inSeconds());
         return content;
     }
 
@@ -315,13 +350,7 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
         Content content;
         content.startBeats = startBeats;
         content.offset = offsetSeconds;
-        if (! w.active())
-            content.covered = lengthSeconds;
-        else
-        {
-            const auto endBeats = toBeats(toTime(startBeats) + tracktion::TimeDuration::fromSeconds(lengthSeconds));
-            content.covered = (endBeats - startBeats) * 60.0 / w.sourceBpm;
-        }
+        content.covered = coveredOf(w, startBeats, lengthSeconds);
         return content;
     }
 
@@ -347,12 +376,14 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
             c.setIsReversed(reversed && ! beatsMode);
         if (reversed && beatsMode)
             c.state.setProperty(reversedProperty, 1, um());
-        else if (c.state.hasProperty(reversedProperty))
-            c.state.removeProperty(reversedProperty, um());
+        else if (c.state.hasProperty(reversedProperty) && static_cast<int>(c.state[reversedProperty]) != 0)
+            c.state.setProperty(reversedProperty, 0, um()); // set, not removed: an undo would re-append a removed property
 
         const auto leaveBeatsFile = [&] {
             if (decoded != juce::File() && pointsAtBeatsFile(c))
                 c.getSourceFileReference().setToDirectFileReference(decoded, true);
+            if (c.state.hasProperty(beatsBpmProperty) && static_cast<double>(c.state[beatsBpmProperty]) != 0.0)
+                c.state.setProperty(beatsBpmProperty, 0.0, um());
         };
         const auto setStretch = [&](te::TimeStretcher::Mode mode) {
             if (c.getTimeStretchMode() != mode)
@@ -386,7 +417,7 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
                 c.setAutoTempo(false);
             setStretch(te::TimeStretcher::disabled);
             setPitch(0.0f);
-            const auto ratio = juce::jlimit(te::ClipConstants::speedRatioMin, te::ClipConstants::speedRatioMax, tempo / w.sourceBpm);
+            const auto ratio = repitchRatio(w);
             setSpeed(ratio);
             timelineLength = content.covered / ratio;
             timelineOffset = content.offset / ratio;
@@ -403,18 +434,22 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
             {
                 const auto key = render::beatsRenderKey(source.hash(), beatsParamsOf(c, w));
                 c.getSourceFileReference().setToDirectFileReference(beatsFileFor(key), true);
+                c.state.setProperty(beatsBpmProperty, tempo, um());
             }
-            const auto ratio = w.sourceBpm / tempo;
-            timelineLength = content.covered * ratio;
-            timelineOffset = content.offset * ratio;
-            toTimeline = ratio;
+            // The length is in bars at the current tempo; the offset and loop are positions in the render that plays, which
+            // during a tempo drag is still the one made for the earlier tempo.
+            const auto fileRatio = w.sourceBpm / beatsFileBpm(c);
+            timelineLength = content.covered * (w.sourceBpm / tempo);
+            timelineOffset = content.offset * fileRatio;
+            toTimeline = fileRatio;
         }
         else // tones
         {
             leaveBeatsFile();
             setSpeed(1.0);
             auto info = c.getLoopInfo();
-            if (const auto wave = c.getAudioFile().getInfo(); wave.sampleRate > 0.0)
+            // The info comes from the sound itself: a reversed clip's current file is a proxy that may not exist yet.
+            if (const auto wave = te::AudioFile(edit.engine, decoded).getInfo(); wave.sampleRate > 0.0)
             {
                 info.setBpm(w.sourceBpm, wave);
                 info.setNumBeats(wave.getLengthInSeconds() * w.sourceBpm / 60.0);
@@ -486,9 +521,11 @@ struct Arrangement::Impl : private juce::ValueTree::Listener, private juce::Asyn
         info.start = toBeats(pos.getStart());
         info.length = toBeats(pos.getEnd()) - info.start;
         // Seconds of the sound, not of the timeline; a looped clip starts that far past its loop's start.
-        info.offsetSeconds = info.offsetSeconds * offsetFactor(info.warp) + (loop.on ? loop.start : 0.0);
+        info.offsetSeconds = info.offsetSeconds * offsetFactor(c, info.warp) + (loop.on ? loop.start : 0.0);
         info.gainDb = c.getGainDB();
         info.reversed = reversedOf(c);
+        if (info.warp.active() && info.warp.mode == WarpMode::repitch && repitchRatio(info.warp) != tempoBpm() / info.warp.sourceBpm)
+            info.clampedSpeed = repitchRatio(info.warp);
 
         const auto source = sourceById(info.sourceId);
         info.sourceSeconds = source.isValid() ? source.lengthSeconds() : c.getSourceLength().inSeconds();
@@ -937,6 +974,7 @@ juce::String Arrangement::createClip(const juce::String& trackId, const ClipSpec
         clip->setPosition(position); // reversing rewrites the offset for the reversed file; the spec's offset is already that
         clip->beginRenderingNewProxyIfNeeded();
     }
+    impl->applyFades(*clip); // the user's fades (the properties above), not the declick set earlier
     return clip->itemID.toString();
 }
 
@@ -1074,7 +1112,7 @@ void Arrangement::setClipReversed(const juce::String& clipId, bool reversed)
             if (reversed)
                 c->state.setProperty(reversedProperty, 1, impl->um());
             else
-                c->state.removeProperty(reversedProperty, impl->um());
+                c->state.setProperty(reversedProperty, 0, impl->um());
         }
         else
             c->setIsReversed(reversed);
@@ -1091,7 +1129,7 @@ void Arrangement::setClipReversed(const juce::String& clipId, bool reversed)
         if (reversed)
             c->state.setProperty(reversedProperty, 1, impl->um());
         else
-            c->state.removeProperty(reversedProperty, impl->um());
+            c->state.setProperty(reversedProperty, 0, impl->um());
         impl->applyWarp(*c, content);
         return;
     }
@@ -1134,6 +1172,14 @@ void Arrangement::setTempo(double bpm, bool rewriteBeats)
         for (auto* base : t->getClips())
             if (auto* wave = dynamic_cast<te::WaveAudioClip*>(base); wave != nullptr && impl->warpOf(*wave).active())
                 warped.emplace_back(wave, impl->contentOf(*wave));
+
+    // During a drag a Beats clip keeps playing its render, made for the tempo before the drag. An older save did not note
+    // that tempo: note it now, before it changes, so that the clip's offset keeps pointing into the render that plays.
+    if (! rewriteBeats)
+        for (auto& [clip, content] : warped)
+            if (impl->warpOf(*clip).mode == WarpMode::beats
+                && ! (clip->state.hasProperty(beatsBpmProperty) && static_cast<double>(clip->state[beatsBpmProperty]) > 0.0))
+                clip->state.setProperty(beatsBpmProperty, impl->tempoBpm(), impl->um());
 
     auto* tempo = impl->edit.tempoSequence.getTempo(0);
     const auto clamped = juce::jlimit(20.0, 999.0, bpm);

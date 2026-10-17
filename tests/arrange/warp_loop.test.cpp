@@ -436,3 +436,22 @@ TEST_CASE("reversing and warping a looped clip keep the loop valid", "[arrange][
     CHECK(f.arrangement().clip(r.clip)->loopStart == Approx(1.0));
     CHECK(f.violations.isEmpty());
 }
+
+TEST_CASE("a pasted plain clip plays its fade in, not only the declick", "[arrange][warp][fades]")
+{
+    ArrangeFixture f("wf-paste-plain");
+    const auto sound = f.addSound("dc", 4.0, "dc"); // a constant 0.5
+    cmd::ClipRecord record;
+    record.sourceId = sound;
+    record.name = "dc";
+    record.lengthSeconds = 4.0;
+    record.fadeIn = 0.25;
+    cmd::PasteClips paste({record}, 0, 0.0);
+    f.commands->apply(paste);
+    REQUIRE(paste.resultIds().size() == 1);
+    CHECK(f.arrangement().clip(paste.resultIds().front())->fadeIn == Approx(0.25));
+    double rate = 0.0;
+    const auto out = renderProject(f, "wf-paste-plain", &rate);
+    CHECK(at(out, rate, 0.125) == Approx(0.25).margin(0.02)); // half way up the 0.25 s fade
+    CHECK(at(out, rate, 1.0) == Approx(0.5).margin(0.005));
+}

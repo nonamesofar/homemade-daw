@@ -55,7 +55,10 @@ ClipInspector::ClipInspector(const engine::Arrangement& a, commands::CommandServ
         return t.getDoubleValue();
     };
     gain.onDragStart = [this] { commands.begin("Set clip gain"); };
-    gain.onDragEnd = [this] { commands.commit(); };
+    gain.onDragEnd = [this] {
+        commands.commit();
+        refresh(); // the field shows what the clip has now
+    };
     gain.onChange = [this](double v) {
         if (! clip)
             return;
@@ -108,7 +111,10 @@ ClipInspector::ClipInspector(const engine::Arrangement& a, commands::CommandServ
         fade->formatter = [](double ms) { return InspectorLogic::msText(ms); };
         fade->parser = [](const juce::String& text) { return InspectorLogic::parseMs(text); };
         fade->onDragStart = [this] { commands.begin("Set clip fades"); };
-        fade->onDragEnd = [this] { commands.commit(); };
+        fade->onDragEnd = [this] {
+            commands.commit();
+            refresh(); // a fade that was cut to fit shows the cut value
+        };
     }
     const auto sendFades = [this](InspectorLogic::FadeValues fades, bool dragging) {
         commands::SetClipFades command(clip->id, fades.inMs / 1000.0, fades.outMs / 1000.0);
@@ -190,7 +196,10 @@ ClipInspector::ClipInspector(const engine::Arrangement& a, commands::CommandServ
     transpose.formatter = [](double v) { return InspectorLogic::transposeText(v); };
     transpose.parser = [](const juce::String& text) { return InspectorLogic::parseTranspose(text); };
     transpose.onDragStart = [this] { commands.begin("Set clip transpose"); };
-    transpose.onDragEnd = [this] { commands.commit(); };
+    transpose.onDragEnd = [this] {
+        commands.commit();
+        refresh(); // a drag moves in whole semitones: the field shows the rounded value
+    };
     transpose.onChange = [this](double v) {
         if (! clip)
             return;

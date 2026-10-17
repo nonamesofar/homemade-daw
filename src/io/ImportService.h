@@ -57,6 +57,12 @@ public:
     /** Message thread. Called for every error, note and duplicate of a batch, after the sounds are recorded. */
     std::function<void(const ImportMessage&)> onMessage;
 
+    /**
+        Message thread. The warp a clip of a sound that is already in the project starts with (set by the app, which
+        owns the analysis). Without it, or for a sound that is new in the batch, the clip starts with WARP off.
+    */
+    std::function<engine::WarpSettings(const juce::String& sourceId)> defaultWarp;
+
     /** Longest file accepted, in seconds. */
     static constexpr double maxSeconds = 30.0 * 60.0;
 

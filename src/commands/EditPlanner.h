@@ -36,6 +36,7 @@ struct Span
     juce::String id;
     juce::String copyOf;
     int specIndex = -1;
+    bool cutPiece = false; // the part of a clip that remains after another clip landed inside it
     int tag = -1; // the command's own number for a placed clip (pieces cut from other clips keep -1)
     int track = 0;
     double start = 0.0;

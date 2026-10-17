@@ -3,6 +3,8 @@
 
 #include <catch2/catch_approx.hpp>
 
+#include <regex>
+
 using Catch::Approx;
 using sampler::engine::WarpMode;
 using sampler::engine::WarpSettings;
@@ -311,4 +313,127 @@ TEST_CASE("reversing a Beats clip plays a render of the reversed sound", "[arran
     f.project->undoManager().undo();
     CHECK(firstDifference(f.arrangement().serialise(), forward) == "");
     CHECK_FALSE(f.arrangement().clip(clipId)->reversed);
+}
+
+TEST_CASE("Tones: a reversed clip is stretched to fill its bars too", "[arrange][warp][engine]")
+{
+    ArrangeFixture f("warp-tones-reversed");
+    const auto sound = addFixtureSound(f, "tone-440-100.wav");
+    setTempo(f, 130.0);
+    f.project->undoManager().beginNewTransaction("create");
+    auto spec = specFor(f, sound, 0.0, warpOn(WarpMode::tones, 100.0));
+    spec.reversed = true;
+    const auto clipId = f.arrangement().createClip(f.trackId(0), spec);
+    REQUIRE(clipId.isNotEmpty());
+    const auto info = *f.arrangement().clip(clipId);
+    CHECK(info.reversed);
+    CHECK(info.length == Approx(16.0));
+    CHECK(info.lengthSeconds == Approx(16.0 * 60.0 / 130.0).margin(1.0e-6));
+
+    // The loop info (tempo and beats) comes from the sound, not from the reversed file that may not exist yet.
+    CHECK(f.arrangement().serialise().contains("numBeats=\"16"));
+}
+
+TEST_CASE("Beats: a tempo drag keeps the offset on the same material of the render that plays; the final tempo re-maps it",
+          "[arrange][warp][engine]")
+{
+    ArrangeFixture f("warp-beats-drag");
+    const auto sound = addFixtureSound(f, "break-90.wav");
+    f.project->undoManager().beginNewTransaction("create");
+    auto spec = specFor(f, sound, 4.0, warpOn(WarpMode::beats, 90.0));
+    spec.offsetSeconds = 8.0 / 3.0; // one bar of the sound in
+    spec.lengthBeats = 8.0;
+    const auto clipId = f.arrangement().createClip(f.trackId(0), spec);
+    REQUIRE(waitForBeatsRenders(f));
+    const auto before = f.arrangement().serialise();
+    CHECK(f.arrangement().clip(clipId)->offsetSeconds == Approx(8.0 / 3.0));
+
+    f.project->undoManager().beginNewTransaction("drag");
+    for (const auto bpm : {110.0, 90.0, 60.0})
+    {
+        f.arrangement().setTempo(bpm, false);
+        const auto info = *f.arrangement().clip(clipId);
+        INFO("bpm " << bpm);
+        CHECK(info.offsetSeconds == Approx(8.0 / 3.0).margin(1.0e-6)); // the same part of the sound
+        CHECK(info.length == Approx(8.0));
+        CHECK(info.start == Approx(4.0));
+        CHECK(rawClipOffset(f.arrangement()) == Approx(8.0 / 3.0 * 90.0 / 120.0).margin(1.0e-6)); // Tracktion still points into the render made at 120
+    }
+    f.arrangement().setTempo(60.0, true);
+    const auto last = *f.arrangement().clip(clipId);
+    CHECK(last.offsetSeconds == Approx(8.0 / 3.0).margin(1.0e-6));
+    CHECK(last.length == Approx(8.0));
+
+    f.project->undoManager().undo();
+    CHECK(firstDifference(f.arrangement().serialise(), before) == "");
+    REQUIRE(waitForBeatsRenders(f));
+}
+
+TEST_CASE("Beats: a clip saved without the render's tempo keeps its offset during a tempo drag", "[arrange][warp][engine]")
+{
+    ArrangeFixture f("warp-beats-drag-old");
+    const auto sound = addFixtureSound(f, "break-90.wav");
+    f.project->undoManager().beginNewTransaction("create");
+    auto spec = specFor(f, sound, 4.0, warpOn(WarpMode::beats, 90.0));
+    spec.offsetSeconds = 8.0 / 3.0;
+    spec.lengthBeats = 8.0;
+    REQUIRE(f.arrangement().createClip(f.trackId(0), spec).isNotEmpty());
+    REQUIRE(waitForBeatsRenders(f));
+    REQUIRE(f.project->save());
+
+    // Simulate an older save: the clip does not note the tempo its render was made for.
+    const auto bundle = f.project->bundleDir();
+    const auto editFile = bundle.getChildFile("project.tracktionedit");
+    auto text = editFile.loadFileAsString();
+    REQUIRE(text.contains("sampler_beatsBpm"));
+    text = juce::String(std::regex_replace(text.toStdString(), std::regex(" sampler_beatsBpm=\"[^\"]*\""), ""));
+    REQUIRE(editFile.replaceWithText(text));
+    f.commands.reset();
+    f.project.reset();
+
+    juce::String error;
+    auto reopened = sampler::ProjectEdit::open(f.host, bundle, error);
+    REQUIRE(reopened != nullptr);
+    auto& a = reopened->arrangement();
+    REQUIRE(a.numClips() == 1);
+    REQUIRE_FALSE(a.serialise().contains("sampler_beatsBpm"));
+    const auto clipId = a.clips().front().id;
+    const auto before = a.serialise();
+    const auto raw = rawClipOffset(a);
+    CHECK(a.clip(clipId)->offsetSeconds == Approx(8.0 / 3.0).margin(1.0e-6));
+
+    reopened->undoManager().beginNewTransaction("drag");
+    for (const auto bpm : {110.0, 90.0, 60.0})
+    {
+        a.setTempo(bpm, false);
+        INFO("bpm " << bpm);
+        CHECK(a.clip(clipId)->offsetSeconds == Approx(8.0 / 3.0).margin(1.0e-6));
+        CHECK(rawClipOffset(a) == Approx(raw).margin(1.0e-6));
+    }
+    reopened->undoManager().undo();
+    CHECK(firstDifference(a.serialise(), before) == "");
+}
+
+TEST_CASE("Re-pitch beyond Tracktion's speed limit keeps its length and offset across tempo changes", "[arrange][warp][engine]")
+{
+    ArrangeFixture f("warp-repitch-clamped");
+    const auto sound = addFixtureSound(f, "tone-440-100.wav");
+    setTempo(f, 800.0); // 800 / 20 = 40, past the limit of 20
+    f.project->undoManager().beginNewTransaction("create");
+    auto spec = specFor(f, sound, 0.0, warpOn(WarpMode::repitch, 20.0));
+    spec.offsetSeconds = 1.0;
+    spec.lengthSeconds = 4.0;
+    const auto clipId = f.arrangement().createClip(f.trackId(0), spec);
+    REQUIRE(clipId.isNotEmpty());
+    const auto first = *f.arrangement().clip(clipId);
+
+    for (const auto bpm : {799.0, 800.0, 799.0, 800.0})
+    {
+        f.arrangement().setTempo(bpm);
+        const auto info = *f.arrangement().clip(clipId);
+        INFO("bpm " << bpm);
+        CHECK(info.offsetSeconds == Approx(first.offsetSeconds).margin(1.0e-6));
+        CHECK(info.coveredSeconds() == Approx(first.coveredSeconds()).margin(1.0e-6));
+        CHECK(info.lengthSeconds == Approx(first.lengthSeconds).margin(1.0e-6));
+    }
 }

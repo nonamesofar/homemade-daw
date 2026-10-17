@@ -59,12 +59,14 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    /** Where the waveform is drawn, for tests. */
+    juce::Rectangle<int> waveArea() const;
+
     /** "Bars 5–8" for a clip covering bars 5 to 8. */
     static juce::String barsText(double startBeat, double endBeat, int beatsPerBar);
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override { refresh(); }
-    juce::Rectangle<int> waveArea() const;
     /** A cell of the grid of value fields (3 columns, 2 rows: GAIN START LENGTH / FADE IN FADE OUT LOOP). */
     juce::Rectangle<int> valueCell(int column, int row) const;
     static constexpr int valueGridWidth = 352;

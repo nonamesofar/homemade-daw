@@ -215,8 +215,16 @@ inline std::optional<double> parseLength(const juce::String& text, int beatsPerB
             beats = n.getDoubleValue();
         else if (units[0].isNotEmpty() && ! isBars(units[0]))
             return std::nullopt;
-        else if (units[0].isEmpty() && dot > 0 && dot < n.length() - 1 && n.indexOfChar(dot + 1, '.') < 0)
-            beats = n.substring(0, dot).getIntValue() * perBar + n.substring(dot + 1).getIntValue(); // "bars.beats"
+        else if (units[0].isEmpty() && dot >= 0 && dot < n.length() - 1 && n.indexOfChar(dot + 1, '.') < 0)
+        {
+            // "bars.beats" (".2" is "0.2"); a beat part that is not a beat of the bar ("1.5" in 4/4, "1.25") is no length.
+            const auto beatPart = n.substring(dot + 1);
+            const auto beatInBar = beatPart.getIntValue();
+            const bool noBeats = beatPart.containsOnly("0"); // "2.00" is two whole bars
+            if (! noBeats && ((beatPart.length() > 1 && perBar < 10.0) || beatInBar >= static_cast<int>(perBar)))
+                return std::nullopt;
+            beats = n.substring(0, dot).getIntValue() * perBar + beatInBar;
+        }
         else
             beats = n.getDoubleValue() * perBar;
     }

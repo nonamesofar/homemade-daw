@@ -38,13 +38,31 @@ std::map<int, juce::String> execute(ModelContext& context, const Plan& plan, con
     std::map<int, juce::String> tagged;
     const auto trackId = [&tracks](int index) { return tracks[static_cast<size_t>(juce::jlimit(0, static_cast<int>(tracks.size()) - 1, index))].id; };
 
+    // The clips that pieces are cut from, as they are before the first piece is made (their fades change meanwhile).
+    std::map<juce::String, engine::ClipInfo> originals;
+    for (const auto& s : plan.created)
+        if (s.cutPiece && s.copyOf.isNotEmpty() && ! originals.count(s.copyOf))
+            if (const auto info = a.clip(s.copyOf))
+                originals.emplace(s.copyOf, *info);
+
     // New clips first: a piece may copy a clip that this plan shortens or removes.
     for (const auto& s : plan.created)
     {
         const auto seconds = time.secondsBetween(s.start, s.end());
         juce::String id;
         if (s.copyOf.isNotEmpty())
+        {
+            const auto found = s.cutPiece ? originals.find(s.copyOf) : originals.end();
             id = a.copyClip(s.copyOf, trackId(s.track), s.start, seconds, s.offset);
+            if (found != originals.end() && id.isNotEmpty())
+            {
+                // Like a split: the fade in stays on the left part and the fade out moves to the piece that holds the end.
+                const auto& original = found->second;
+                const bool holdsEnd = std::abs(s.end() - original.end()) < EditPlanner::epsilon;
+                a.setClipFades(s.copyOf, original.fadeIn, 0.0);
+                a.setClipFades(id, 0.0, holdsEnd ? original.fadeOut : 0.0);
+            }
+        }
         else if (juce::isPositiveAndBelow(s.specIndex, static_cast<int>(specs.size())))
         {
             auto spec = specs[static_cast<size_t>(s.specIndex)];
@@ -118,6 +136,8 @@ Span spanFor(const engine::ClipInfo& clip, int trackIndex)
     s.length = clip.length;
     s.offset = clip.offsetSeconds;
     s.warpBpm = clip.warp.active() ? clip.warp.sourceBpm : 0.0;
+    if (clip.clampedSpeed > 0.0 && clip.length > 0.0)
+        s.warpBpm = clip.length * 60.0 / clip.coveredSeconds(); // Tracktion plays a clamped speed: the beats say how much sound plays at that speed
     if (clip.loop)
     {
         s.loopStart = clip.loopStart;
@@ -413,7 +433,7 @@ void PasteClips::perform(ModelContext& context)
         spec.name = record.name;
         spec.gainDb = record.gainDb;
         spec.reversed = record.reversed;
-        if (record.warp.active())
+        if (record.warp.active() || record.warp.sourceBpm > 0.0 || record.warp.transpose != 0.0) // keeps the remembered tempo when WARP is off
             spec.warp = record.warp;
         spec.loopStart = record.loopStart;
         spec.loopLength = record.loopLength;
@@ -425,7 +445,9 @@ void PasteClips::perform(ModelContext& context)
         s.track = juce::jlimit(0, a.numTracks() - 1, track + record.trackOffset);
         s.start = std::max(0.0, beat + record.startOffset);
         s.warpBpm = spec.warp.active() ? spec.warp.sourceBpm : 0.0;
-        s.length = spec.warp.active() ? record.lengthBeats : time.beatAfter(s.start, record.lengthSeconds) - s.start;
+        s.length = spec.warp.active() && record.lengthBeats > 0.0
+                       ? record.lengthBeats
+                       : time.beatAfter(s.start, record.lengthSeconds) - s.start; // lengthSeconds is timeline time
         s.offset = record.offsetSeconds;
         s.loopStart = record.loopStart;
         s.loopLength = record.loopLength;

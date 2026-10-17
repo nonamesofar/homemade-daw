@@ -438,13 +438,82 @@ TEST_CASE("the loop passes and the fades are drawn on the inspector waveform", "
     run(h, cmd::SetClipFades(clip, 0.5, 0.25));
     h.sync();
 
-    // Painting a looped, faded clip must work (no thumbnail in this harness: the marks and fades are still drawn).
-    juce::Image image(juce::Image::ARGB, h.inspector->getWidth(), h.inspector->getHeight(), true);
-    juce::Graphics g(image);
-    h.inspector->paintEntireComponent(g, false);
-    CHECK(image.getWidth() > 0);
+    // This inspector gets thumbnails, which the loop marks need (they are drawn over the waveform).
+    h.inspector = std::make_unique<ui::ClipInspector>(
+        h.f.project->arrangement(), *h.f.commands, h.selection,
+        [&h](const juce::String& id, juce::Component& target) -> std::unique_ptr<juce::AudioThumbnailBase> {
+            const auto source = sampler::model::SamplerState(h.f.project->samplerState()).findSourceById(id);
+            return source.isValid() ? h.f.host.createThumbnail(h.f.project->bundleDir().getChildFile(source.decoded()), target) : nullptr;
+        });
+    h.inspector->setSize(1000, 256);
+    select(h, clip);
+
+    const auto paintInspector = [&h] {
+        juce::Image image(juce::Image::ARGB, h.inspector->getWidth(), h.inspector->getHeight(), true);
+        juce::Graphics g(image);
+        h.inspector->paintEntireComponent(g, false);
+        return image;
+    };
     const auto pieces = sampler::ui::waveformPieces(*h.f.arrangement().clip(clip));
     CHECK(pieces.size() == 4);
+
+    // The mark between the first and second pass: on the top row of the waveform (above the quiet ramp) its pixel differs from
+    // the one beside it once the thumbnail has loaded.
+    const auto area = h.inspector->waveArea().reduced(4);
+    const auto markX = area.getX() + juce::roundToInt(pieces[1].from * area.getWidth());
+    const auto topY = area.getY() + 1;
+    auto faded = paintInspector();
+    for (int i = 0; i < 60 && faded.getPixelAt(markX, topY) == faded.getPixelAt(markX + 3, topY); ++i)
+    {
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+        faded = paintInspector();
+    }
+    CHECK(faded.getPixelAt(markX, topY) != faded.getPixelAt(markX + 3, topY));
+
+    // The fade-in slope is drawn: the first 40 columns of the area differ from a paint of the same clip without fades.
+    run(h, cmd::SetClipFades(clip, 0.0, 0.0));
+    h.sync();
+    const auto plain = paintInspector();
+    int differing = 0;
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getX() + 40; ++x)
+            differing += faded.getPixelAt(x, y) != plain.getPixelAt(x, y) ? 1 : 0;
+    CHECK(differing > 0);
+}
+
+TEST_CASE("after a fade drag the field shows the value the clip got, not the dragged one", "[arrange][warp][inspector][fades]")
+{
+    ViewHarness h("wi-fade-drag");
+    const auto sound = h.f.addSound("one-second", 1.0, "tone");
+    const auto clip = h.f.place(sound, 0, 0.0); // 1 s
+    select(h, clip);
+    auto& in = *h.inspector;
+    REQUIRE(in.fadeOut.commitText("600"));
+    h.sync();
+
+    const auto mid = static_cast<float>(in.fadeIn.getHeight()) * 0.5f;
+    h.drag(in.fadeIn, {20.0f, mid}, {20.0f, mid - 200.0f}, {20.0f, mid - 400.0f}); // up: longer, far past what fits
+    const auto info = *h.f.arrangement().clip(clip);
+    CHECK(info.fadeIn == Approx(0.4));
+    CHECK(in.fadeIn.text() == "400 ms");
+    CHECK(in.fadeOut.text() == "600 ms");
+}
+
+TEST_CASE("after a transpose drag the field shows the whole semitones the clip plays", "[arrange][warp][inspector]")
+{
+    ViewHarness h("wi-transpose-drag");
+    h.soundBpm = 90.0;
+    const auto sound = addFixtureSound(h.f, "break-90.wav");
+    const auto clip = placeClip(h, sound, 0.0, warpOn(WarpMode::beats, 90.0));
+    select(h, clip);
+    auto& in = *h.inspector;
+
+    const auto mid = static_cast<float>(in.transpose.getHeight()) * 0.5f;
+    h.drag(in.transpose, {20.0f, mid}, {20.0f, mid - 7.0f}, {20.0f, mid - 13.0f});
+    const auto value = h.f.arrangement().clip(clip)->warp.transpose;
+    CHECK(value == Approx(std::round(value)));
+    CHECK(in.transpose.text() == sampler::ui::InspectorLogic::transposeText(value));
+    CHECK(waitForBeatsRenders(h.f));
 }
 
 //==============================================================================

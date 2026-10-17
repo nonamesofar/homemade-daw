@@ -107,7 +107,14 @@ struct ClipInfo
 
     double end() const { return start + length; }
     /** Seconds of the sound this clip plays from its offset (without looping). */
-    double coveredSeconds() const { return warp.active() ? length * 60.0 / warp.sourceBpm : lengthSeconds; }
+    double coveredSeconds() const
+    {
+        if (clampedSpeed > 0.0)
+            return lengthSeconds * clampedSpeed;
+        return warp.active() ? length * 60.0 / warp.sourceBpm : lengthSeconds;
+    }
+    /** Set (to the speed Tracktion plays) for a Re-pitch clip whose tempo ratio is past Tracktion's speed limits; else 0. */
+    double clampedSpeed = 0.0;
 };
 
 struct TimeSig

@@ -251,6 +251,24 @@ TEST_CASE("fade handles win over the edges only in the top 8 px, and sit where t
     REQUIRE(hit);
     CHECK(hit->zone == ClipZone::fadeOutHandle);
 
+    // The fades fill the clip (4 + 12 beats): both handles sit at x 200. Left of the point grabs the fade in (it can shrink
+    // leftwards), right of it the fade out (it can shrink rightwards).
+    const std::vector<LaneClip> full{{"t", 0, 16.0, 16.0, 4.0, 12.0}};
+    hit = hitTestClip(full, layout, v, 197.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::fadeInHandle);
+    hit = hitTestClip(full, layout, v, 200.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::fadeOutHandle);
+    hit = hitTestClip(full, layout, v, 203.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::fadeOutHandle);
+    // A fade out over the whole clip and no fade in: the handle at the left corner is the fade out's.
+    const std::vector<LaneClip> allOut{{"o", 0, 16.0, 16.0, 0.0, 16.0}};
+    hit = hitTestClip(allOut, layout, v, 163.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::fadeOutHandle);
+
     // A narrow clip has no handles.
     const std::vector<LaneClip> narrow{{"n", 0, 0.0, 1.2}};
     hit = hitTestClip(narrow, layout, v, 2.0, 10.0);

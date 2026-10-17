@@ -276,6 +276,8 @@ void MainComponent::refresh()
     }
     if (headerBar != nullptr)
         headerBar->refresh();
+    if (clipInspector != nullptr)
+        clipInspector->refresh(); // a finished analysis may give the selected clip's sound a tempo
     if (editorView != nullptr && editorView->isOpen())
     {
         // Undo of the import that made the open sound takes it away: the arrangement is shown again.

@@ -4,6 +4,7 @@
 #include "engine/LevelMeters.h"
 #include "engine/Transport.h"
 #include "RecordingPolicy.h"
+#include "io/WarpDefaults.h"
 #include "model/SamplerState.h"
 
 #include <algorithm>
@@ -95,6 +96,9 @@ void AppController::attachProject(std::unique_ptr<ProjectEdit> project)
     edit->arrangement().addChangeListener(this);
     importService = std::make_unique<io::ImportService>(edit->samplerState(), *commands, [this] { return edit->bundleDir(); }, registry);
     importService->onMessage = [this](const io::ImportMessage& message) { handleImportMessage(message); };
+    importService->defaultWarp = [this](const juce::String& id) {
+        return io::defaultWarpFor(model::SamplerState(edit->samplerState()).findSourceById(id), *analysisService);
+    };
     analysisService = std::make_unique<io::AnalysisService>([this] { return edit->bundleDir(); });
     analysisService->onAnalysed = [this](const juce::String&) { sendChangeMessage(); };
     analysisService->onFailed = [this](const juce::String&) { sendChangeMessage(); };

@@ -177,6 +177,20 @@ TEST_CASE("a typed length is bars, bars.beats or beats", "[ui][inspector][length
     CHECK(parseLength("3b", 4).value() == Approx(3.0));
     CHECK(parseLength("2", 3).value() == Approx(6.0)); // a bar of three beats
     CHECK(parseLength("1,2", 4).value() == Approx(6.0));
+    CHECK(parseLength("1.3", 4).value() == Approx(7.0));
+    CHECK(parseLength("2.00", 4).value() == Approx(8.0)); // a beat part of zeros is whole bars
+    CHECK(parseLength("3.000", 4).value() == Approx(12.0));
+    CHECK(parseLength(".2", 4).value() == Approx(2.0));
+    CHECK(parseLength(".2", 4).value() == Approx(parseLength("0.2", 4).value()));
+    // The beat part must be a beat of the bar.
+    CHECK_FALSE(parseLength("1.5", 4).has_value());
+    CHECK_FALSE(parseLength("1,5", 4).has_value());
+    CHECK_FALSE(parseLength("1.25", 4).has_value());
+    CHECK_FALSE(parseLength("0.5", 4).has_value());
+    CHECK_FALSE(parseLength(".5", 4).has_value());
+    CHECK(parseLength("1.2", 3).value() == Approx(5.0)); // 3/4
+    CHECK_FALSE(parseLength("1.3", 3).has_value());
+    CHECK(parseLength("1.5 bars", 4).value() == Approx(6.0)); // a typed unit keeps the decimal meaning
     CHECK_FALSE(parseLength("", 4).has_value());
     CHECK_FALSE(parseLength("0", 4).has_value());
     CHECK_FALSE(parseLength("long", 4).has_value());

@@ -489,16 +489,23 @@ void ImportService::finishBatch(int jobId, std::vector<Prepared> ready, std::vec
     {
         // The sounds to place, in the order they were dropped: new ones by their new id, known ones by their hash.
         std::vector<juce::String> placeIds;
+        std::vector<engine::WarpSettings> warps; // a new sound is not analysed yet: WARP off; a known one gets its default
         for (const auto& hash : hashesInOrder)
         {
             const auto added = std::find_if(toAdd.begin(), toAdd.end(), [&hash](const model::SourceData& d) { return d.hash == hash; });
             if (added != toAdd.end())
+            {
                 placeIds.push_back(added->id);
+                warps.emplace_back();
+            }
             else if (const auto existing = state.findSourceByHash(hash); existing.isValid())
+            {
                 placeIds.push_back(existing.id());
+                warps.push_back(defaultWarp ? defaultWarp(existing.id()) : engine::WarpSettings());
+            }
         }
         if (! toAdd.empty() || ! placeIds.empty())
-            commands.apply(std::make_unique<commands::ImportAndPlace>(std::move(toAdd), std::move(placeIds), *placement));
+            commands.apply(std::make_unique<commands::ImportAndPlace>(std::move(toAdd), std::move(placeIds), *placement, std::move(warps)));
     }
     else if (! toAdd.empty())
         commands.apply(std::make_unique<commands::AddSources>(std::move(toAdd)));

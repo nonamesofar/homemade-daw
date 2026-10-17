@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 namespace sampler::test
 {
@@ -41,6 +42,23 @@ inline juce::String addFixtureSound(ArrangeFixture& f, const juce::String& fileN
     data.category = category;
     f.commands->apply(std::make_unique<commands::AddSources>(std::vector<model::SourceData>{data}));
     return data.id;
+}
+
+/** Tracktion's own offset (timeline seconds into the file) of the first audio clip, read from the serialised edit; -1 if none. */
+inline double rawClipOffset(const engine::Arrangement& arrangement)
+{
+    const auto xml = juce::parseXML(arrangement.serialise());
+    REQUIRE(xml != nullptr);
+    const std::function<const juce::XmlElement*(const juce::XmlElement&)> find = [&find](const juce::XmlElement& e) -> const juce::XmlElement* {
+        if (e.hasTagName("AUDIOCLIP"))
+            return &e;
+        for (const auto* child : e.getChildIterator())
+            if (const auto* found = find(*child))
+                return found;
+        return nullptr;
+    };
+    const auto* clip = find(*xml);
+    return clip != nullptr ? clip->getDoubleAttribute("offset", 0.0) : -1.0;
 }
 
 /** A clip spec for a sound of the project, covering all of it. */

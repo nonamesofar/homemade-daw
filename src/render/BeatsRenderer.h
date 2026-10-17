@@ -3,6 +3,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
 
+#include <functional>
 #include <vector>
 
 namespace sampler::render
@@ -50,16 +51,20 @@ std::vector<juce::int64> beatsCutPoints(const float* mono, juce::int64 numFrames
     to `ratio * start`; a piece that no longer fits its slot is cut at the next piece with a 3 ms fade-out, a piece
     followed by a gap gets a 10 ms fade-out, and with a transpose each piece is pitch-shifted (length kept) before it is
     placed. The result has the channel count (1 or 2) of the sound and `round(frames * ratio)` frames. Pure function of
-    its inputs; any thread. An empty buffer means the parameters cannot be rendered (tempo out of range, no audio).
+    its inputs; any thread. An empty buffer means the parameters cannot be rendered (tempo out of range, no audio, an
+    output longer than 30 minutes at 192 kHz) or that `shouldStop`, polled once per piece, returned true.
 */
-juce::AudioBuffer<float> renderBeats(const juce::AudioBuffer<float>& sound, double rate, const BeatsParams&);
+juce::AudioBuffer<float> renderBeats(const juce::AudioBuffer<float>& sound, double rate, const BeatsParams&,
+                                    const std::function<bool()>& shouldStop = {});
 
 /**
     Reads the decoded WAV, renders it and writes `destination` as a 32-bit float WAV through a temporary file in the same
     folder and one rename, so the file is either missing or complete. An existing destination is left as it is (the name
-    holds the key). Returns false with `error` set on failure. Any thread.
+    holds the key). Returns false with `error` set on failure, including a failed allocation. When `shouldStop` returns true
+    the render is abandoned and nothing is written. Any thread.
 */
-bool renderBeatsToFile(const juce::File& decodedWav, const juce::File& destination, const BeatsParams&, juce::String& error);
+bool renderBeatsToFile(const juce::File& decodedWav, const juce::File& destination, const BeatsParams&, juce::String& error,
+                       const std::function<bool()>& shouldStop = {});
 
 /**
     The cache name of a render: a hash of the sound's content key, the two tempos (4 decimals), reverse, transpose and

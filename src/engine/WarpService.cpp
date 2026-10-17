@@ -48,7 +48,8 @@ struct WarpService::Impl
             juce::String error;
             bool ok = true;
             if (wanted && ! shouldExit() && shared->alive)
-                ok = render::renderBeatsToFile(request.decodedWav, request.destination, request.params, error);
+                ok = render::renderBeatsToFile(request.decodedWav, request.destination, request.params, error,
+                                               [this] { return shouldExit() || ! shared->alive; });
             else
                 error = {}; // skipped: a newer request replaced this one
 

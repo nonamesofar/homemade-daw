@@ -153,6 +153,11 @@ inline std::optional<ClipHit> hitTestClip(const std::vector<LaneClip>& clips, co
             const auto outX = r.x + r.w - std::clamp(it->fadeOut * view.pixelsPerBeat, 0.0, r.w);
             const auto nearIn = std::abs(x - inX) <= handlePx;
             const auto nearOut = std::abs(x - outX) <= handlePx;
+            // Handles on the same point (the fades fill the clip): neither fade can grow, so each can only be shrunk, the fade
+            // in by dragging left and the fade out by dragging right. The mouse side picks the one that can move that way.
+            const auto together = nearIn && nearOut && std::abs(inX - outX) < 1.0e-6;
+            if (together)
+                return ClipHit{it->id, x < inX ? ClipZone::fadeInHandle : ClipZone::fadeOutHandle};
             if (nearIn && (! nearOut || std::abs(x - inX) <= std::abs(x - outX)))
                 return ClipHit{it->id, ClipZone::fadeInHandle};
             if (nearOut)

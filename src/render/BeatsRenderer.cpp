@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <filesystem>
+#include <new>
 #include <memory>
 #include <string>
 
@@ -16,8 +18,8 @@ namespace sampler::render
 {
 namespace
 {
-/** More than this many output frames per channel (about 3.5 hours at 48 kHz) is refused: a tempo far out of range. */
-constexpr juce::int64 maxOutputFrames = 600'000'000;
+/** More than this many output frames per channel (30 minutes at 192 kHz) is refused: a tempo far out of range. */
+constexpr juce::int64 maxOutputFrames = 30 * 60 * 192'000;
 
 bool tempoInRange(double bpm) { return std::isfinite(bpm) && bpm >= 20.0 && bpm <= 999.0; }
 
@@ -85,7 +87,8 @@ std::vector<juce::int64> beatsCutPoints(const float* mono, juce::int64 numFrames
     return cuts;
 }
 
-juce::AudioBuffer<float> renderBeats(const juce::AudioBuffer<float>& sound, double rate, const BeatsParams& params)
+juce::AudioBuffer<float> renderBeats(const juce::AudioBuffer<float>& sound, double rate, const BeatsParams& params,
+                                    const std::function<bool()>& shouldStop)
 {
     const auto numFrames = sound.getNumSamples();
     const auto numChannels = std::min(2, sound.getNumChannels());
@@ -119,6 +122,8 @@ juce::AudioBuffer<float> renderBeats(const juce::AudioBuffer<float>& sound, doub
 
     for (size_t i = 0; i < cuts.size(); ++i)
     {
+        if (shouldStop && shouldStop())
+            return {};
         const auto from = cuts[i];
         const auto to = i + 1 < cuts.size() ? cuts[i + 1] : static_cast<juce::int64>(numFrames);
         const auto length = to - from;
@@ -163,7 +168,10 @@ juce::AudioBuffer<float> renderBeats(const juce::AudioBuffer<float>& sound, doub
     return out;
 }
 
-bool renderBeatsToFile(const juce::File& decodedWav, const juce::File& destination, const BeatsParams& params, juce::String& error)
+namespace
+{
+bool renderBeatsToFileImpl(const juce::File& decodedWav, const juce::File& destination, const BeatsParams& params,
+                           juce::String& error, const std::function<bool()>& shouldStop)
 {
     if (destination.existsAsFile())
         return true;
@@ -189,7 +197,17 @@ bool renderBeatsToFile(const juce::File& decodedWav, const juce::File& destinati
         return false;
     }
 
-    const auto rendered = renderBeats(sound, reader->sampleRate, params);
+    if (shouldStop && shouldStop())
+    {
+        error = "Stopped";
+        return false;
+    }
+    const auto rendered = renderBeats(sound, reader->sampleRate, params, shouldStop);
+    if (shouldStop && shouldStop())
+    {
+        error = "Stopped";
+        return false;
+    }
     if (rendered.getNumSamples() == 0)
     {
         error = "Cannot render " + decodedWav.getFileName() + " at these tempos";
@@ -224,7 +242,9 @@ bool renderBeatsToFile(const juce::File& decodedWav, const juce::File& destinati
         out.release(); // the writer owns the stream now
         const auto ok = writer->writeFromAudioSampleBuffer(rendered, 0, rendered.getNumSamples());
         writer.reset(); // flushes and closes
-        if (! ok)
+        // The writer hides a failed flush (a full disk): a file shorter than its samples is never renamed into its key.
+        const auto expected = static_cast<juce::int64>(rendered.getNumSamples()) * rendered.getNumChannels() * 4;
+        if (! ok || temporary.getSize() < expected)
         {
             temporary.deleteFile();
             error = "Cannot write " + temporary.getFullPathName();
@@ -240,6 +260,26 @@ bool renderBeatsToFile(const juce::File& decodedWav, const juce::File& destinati
         return false;
     }
     return true;
+}
+} // namespace
+
+bool renderBeatsToFile(const juce::File& decodedWav, const juce::File& destination, const BeatsParams& params, juce::String& error,
+                       const std::function<bool()>& shouldStop)
+{
+    // Allocating a long sound can fail; an exception must not leave a worker thread.
+    try
+    {
+        return renderBeatsToFileImpl(decodedWav, destination, params, error, shouldStop);
+    }
+    catch (const std::bad_alloc&)
+    {
+        error = "Not enough memory to render " + decodedWav.getFileName();
+    }
+    catch (const std::exception& e)
+    {
+        error = "Cannot render " + decodedWav.getFileName() + ": " + e.what();
+    }
+    return false;
 }
 
 juce::String beatsRenderKey(const juce::String& soundContentKey, const BeatsParams& params)

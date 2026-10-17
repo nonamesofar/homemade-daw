@@ -29,7 +29,7 @@ std::unique_ptr<cmd::Command> randomEdit(std::mt19937& rng, sampler::engine::Arr
         return w;
     };
 
-    const auto kind = clips.empty() ? 0 : pick(15);
+    const auto kind = clips.empty() ? 0 : pick(16);
     switch (kind)
     {
         case 0:
@@ -49,6 +49,15 @@ std::unique_ptr<cmd::Command> randomEdit(std::mt19937& rng, sampler::engine::Arr
         case 11: return std::make_unique<cmd::SetClipLoop>(anyClip().id, pick(3) != 0);
         case 12: return std::make_unique<cmd::SetClipLength>(anyClip().id, 0.5 + pick(48) * 0.5);
         case 13: return std::make_unique<cmd::SetClipFades>(anyClip().id, pick(3) == 0 ? 0.0 : pick(20) * 0.1, pick(3) == 0 ? 0.0 : pick(20) * 0.1);
+        case 14:
+        {
+            // Not on a looped clip: Tracktion writes isReversed and the loop start in another order on redo (attribute order only,
+            // the same values), which this test would report as a changed saved form.
+            const auto c = anyClip();
+            if (c.loop)
+                return std::make_unique<cmd::SetClipLoop>(c.id, false);
+            return std::make_unique<cmd::SetClipReversed>(c.id, pick(2) == 0);
+        }
         case 9: return std::make_unique<cmd::SetClipTranspose>(anyClip().id, pick(49) - 24.0);
         case 10: return std::make_unique<cmd::SetTempo>(std::vector<double>{90.0, 100.0, 120.0, 133.0}[static_cast<size_t>(pick(4))]);
         case 1:

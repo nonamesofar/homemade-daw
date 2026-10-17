@@ -154,6 +154,41 @@ TEST_CASE("a reversed render is the render of the reversed sound", "[render][bea
         identical = std::memcmp(direct.getReadPointer(c), reversed.getReadPointer(c), sizeof(float) * static_cast<size_t>(direct.getNumSamples())) == 0;
     CHECK(identical);
     CHECK(reversed.getMagnitude(0, reversed.getNumSamples()) > 0.3f);
+
+    // The hits of the reversed loop land on the beat: each piece of the reversed sound starts within 1 ms of ratio x its place.
+    const auto flippedMono = mono(flipped);
+    const auto cuts = beatsCutPoints(flippedMono.data(), static_cast<juce::int64>(flippedMono.size()), sound.rate, 90.0);
+    REQUIRE(cuts.size() >= 8);
+    const auto five = static_cast<juce::int64>(0.005 * sound.rate);
+    for (const auto cut : cuts)
+    {
+        const auto destination = static_cast<juce::int64>(std::llround(0.75 * static_cast<double>(cut)));
+        bool pieceIdentical = true;
+        for (juce::int64 k = 0; k < five && pieceIdentical; ++k)
+            pieceIdentical = reversed.getSample(0, static_cast<int>(destination + k)) == flipped.getSample(0, static_cast<int>(cut + k));
+        CHECK(pieceIdentical);
+    }
+}
+
+TEST_CASE("an output beyond the cap renders nothing, and a stop request abandons the render", "[render][beats]")
+{
+    // A 10 minute sound made for 999 BPM played at 20 BPM is 50 times longer: past the cap, refused before the output is allocated.
+    juce::AudioBuffer<float> longSound(2, 44100 * 60 * 10);
+    CHECK(renderBeats(longSound, 44100.0, params(999.0, 20.0)).getNumSamples() == 0);
+
+    const auto sound = load("break-90.wav");
+    int polls = 0;
+    CHECK(renderBeats(sound.audio, sound.rate, params(90.0, 120.0), [&] { return ++polls > 3; }).getNumSamples() == 0);
+
+    const auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("sampler-tests/beats-stop");
+    dir.deleteRecursively();
+    const auto destination = dir.getChildFile("beats").getChildFile("stopped.wav");
+    juce::String error;
+    CHECK_FALSE(renderBeatsToFile(juce::File(SAMPLER_FIXTURES_DIR).getChildFile("break-90.wav"), destination, params(90.0, 120.0), error,
+                                  [] { return true; }));
+    CHECK_FALSE(destination.existsAsFile());
+    CHECK(destination.getParentDirectory().findChildFiles(juce::File::findFiles, false, "*").isEmpty());
+    dir.deleteRecursively();
 }
 
 TEST_CASE("transposing keeps the length and changes the sound", "[render][beats]")

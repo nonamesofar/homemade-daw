@@ -3,6 +3,8 @@
 
 #include <catch2/catch_approx.hpp>
 
+#include <algorithm>
+
 using Catch::Approx;
 using sampler::engine::WarpMode;
 using sampler::engine::WarpSettings;
@@ -292,6 +294,130 @@ TEST_CASE("duplicate, paste and split carry the warp settings of a clip", "[arra
         f.commands->undo();
         CHECK(f.arrangement().clipsOnTrack(f.trackId(0)).size() == 1);
     }
+    CHECK(f.violations.isEmpty());
+}
+
+TEST_CASE("pasting a WARP-off clip keeps its remembered tempo, and WARP can be turned on after", "[arrange][warp][commands]")
+{
+    ArrangeFixture f("wc-paste-off");
+    const auto sound = addFixtureSound(f, "break-90.wav");
+    const auto original = placeWarped(f, sound, 0, 0.0, warpOn(WarpMode::tones, 90.0, 3.0));
+    f.commands->apply(std::make_unique<cmd::SetClipWarp>(original, false, WarpMode::tones, 90.0));
+    const auto info = *f.arrangement().clip(original);
+    REQUIRE_FALSE(info.warp.on);
+    REQUIRE(info.warp.sourceBpm == 90.0);
+
+    cmd::ClipRecord record;
+    record.sourceId = info.sourceId;
+    record.name = info.name;
+    record.lengthSeconds = info.lengthSeconds;
+    record.warp = info.warp;
+    record.lengthBeats = info.length;
+    cmd::PasteClips paste({record}, 0, 40.0);
+    f.commands->apply(paste);
+    REQUIRE(paste.resultIds().size() == 1);
+    const auto copyId = paste.resultIds().front();
+    const auto copy = *f.arrangement().clip(copyId);
+    CHECK_FALSE(copy.warp.on);
+    CHECK(copy.warp.sourceBpm == 90.0);
+    CHECK(copy.warp.mode == WarpMode::tones);
+    CHECK(copy.warp.transpose == 3.0);
+
+    f.commands->apply(std::make_unique<cmd::SetClipWarp>(copyId, true, WarpMode::tones, 90.0));
+    CHECK(f.arrangement().clip(copyId)->warp.active());
+
+    // A warped record without a length in beats still gets a length (from its seconds).
+    record.warp = warpOn(WarpMode::beats, 90.0);
+    record.lengthBeats = 0.0;
+    record.lengthSeconds = 4.0; // timeline seconds: 8 beats at 120 BPM, which is 5.33 s of a 90 BPM sound
+    cmd::PasteClips pasteNoBeats({record}, 0, 80.0);
+    f.commands->apply(pasteNoBeats);
+    REQUIRE(pasteNoBeats.resultIds().size() == 1);
+    // The record's seconds are timeline seconds (at 120 BPM here), whatever the clip's own tempo.
+    CHECK(f.arrangement().clip(pasteNoBeats.resultIds().front())->length == Approx(8.0));
+    CHECK(f.violations.isEmpty());
+    CHECK(waitForBeatsRenders(f));
+}
+
+TEST_CASE("a clip dropped inside another splits it like a split: the fade in stays left, the fade out goes right", "[arrange][commands][fades]")
+{
+    ArrangeFixture f("wc-cut-fades");
+    f.commands->apply(std::make_unique<cmd::AddTrack>());
+    const auto longSound = f.addSound("long", 8.0, "tone"); // 16 beats at 120 BPM
+    const auto shortSound = f.addSound("short", 1.0, "tone"); // 2 beats
+    const auto a = f.place(longSound, 0, 0.0);
+    const auto b = f.place(shortSound, 1, 0.0);
+    f.commands->apply(std::make_unique<cmd::SetClipFades>(a, 2.0, 2.0));
+
+    f.commands->apply(std::make_unique<cmd::MoveClips>(std::vector<cmd::ClipMove>{{b, 0, 6.0}}));
+    auto clips = f.arrangement().clipsOnTrack(f.trackId(0));
+    REQUIRE(clips.size() == 3);
+    std::sort(clips.begin(), clips.end(), [](const auto& x, const auto& y) { return x.start < y.start; });
+    CHECK(clips[0].id == a);
+    CHECK(clips[0].fadeIn == Approx(2.0));
+    CHECK(clips[0].fadeOut == Approx(0.0));
+    CHECK(clips[1].id == b);
+    CHECK(clips[2].fadeIn == Approx(0.0));
+    CHECK(clips[2].fadeOut == Approx(2.0));
+
+    f.commands->undo();
+    CHECK(f.arrangement().clip(a)->fadeIn == Approx(2.0));
+    CHECK(f.arrangement().clip(a)->fadeOut == Approx(2.0));
+    CHECK(f.violations.isEmpty());
+}
+
+TEST_CASE("two clips dropped inside one long clip in one command: the fade in stays left, the fade out goes to the end piece",
+          "[arrange][commands][fades]")
+{
+    ArrangeFixture f("wc-cut-fades-two");
+    f.commands->apply(std::make_unique<cmd::AddTrack>());
+    const auto longSound = f.addSound("long", 8.0, "tone"); // 16 beats at 120 BPM
+    const auto shortSound = f.addSound("short", 1.0, "tone"); // 2 beats
+    const auto a = f.place(longSound, 0, 0.0);
+    const auto b = f.place(shortSound, 1, 0.0);
+    const auto c = f.place(shortSound, 1, 4.0);
+    f.commands->apply(std::make_unique<cmd::SetClipFades>(a, 2.0, 2.0));
+    const auto before = f.arrangement().serialise();
+
+    f.commands->apply(std::make_unique<cmd::MoveClips>(std::vector<cmd::ClipMove>{{b, 0, 4.0}, {c, 0, 10.0}}));
+    auto clips = f.arrangement().clipsOnTrack(f.trackId(0));
+    REQUIRE(clips.size() == 5);
+    std::sort(clips.begin(), clips.end(), [](const auto& x, const auto& y) { return x.start < y.start; });
+    CHECK(clips[0].id == a);
+    CHECK(clips[0].fadeIn == Approx(2.0));
+    CHECK(clips[0].fadeOut == Approx(0.0));
+    CHECK(clips[1].id == b);
+    CHECK(clips[2].fadeIn == Approx(0.0)); // the piece between the two clips
+    CHECK(clips[2].fadeOut == Approx(0.0));
+    CHECK(clips[3].id == c);
+    CHECK(clips[4].fadeIn == Approx(0.0)); // the piece that holds the end of the long clip
+    CHECK(clips[4].fadeOut == Approx(2.0));
+
+    f.commands->undo();
+    CHECK(firstDifference(f.arrangement().serialise(), before) == "");
+    CHECK(f.violations.isEmpty());
+}
+
+TEST_CASE("a Re-pitch clip past Tracktion's speed limit trims by the sound it really plays", "[arrange][warp][commands]")
+{
+    ArrangeFixture f("wc-trim-clamped");
+    f.commands->apply(std::make_unique<cmd::AddTrack>());
+    const auto sound = addFixtureSound(f, "tone-440-100.wav");
+    const auto clip = placeWarped(f, sound, 0, 0.0, warpOn(WarpMode::repitch, 20.0));
+    f.commands->apply(std::make_unique<cmd::SetTempo>(800.0)); // 800 / 20 = 40, Tracktion plays 20
+    auto info = *f.arrangement().clip(clip);
+    REQUIRE(info.clampedSpeed == Approx(20.0));
+    const auto offsetBefore = info.offsetSeconds;
+    const auto end = info.end();
+
+    f.commands->apply(std::make_unique<cmd::TrimClip>(clip, 1.0, end, 0.0625));
+    const auto trimmed = *f.arrangement().clip(clip);
+    CHECK(trimmed.start == Approx(1.0));
+    CHECK(trimmed.end() == Approx(end));
+    // One beat is 60 / 800 s of the timeline, and the clip plays 20 s of sound per second of it.
+    CHECK(trimmed.offsetSeconds == Approx(offsetBefore + 20.0 * 60.0 / 800.0).margin(1.0e-6));
+    CHECK(trimmed.offsetSeconds + trimmed.coveredSeconds() == Approx(offsetBefore + info.coveredSeconds()).margin(1.0e-6));
+    CHECK(trimmed.offsetSeconds + trimmed.coveredSeconds() <= trimmed.sourceSeconds + 1.0e-6);
     CHECK(f.violations.isEmpty());
 }
 
