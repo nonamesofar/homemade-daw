@@ -877,10 +877,52 @@ void TimelineLanes::paintClip(juce::Graphics& g, const engine::ClipInfo& clip, j
         name << " (rev)";
     g.drawText(name, label.withHeight(16.0f), juce::Justification::centredLeft, true);
 
+    if (! clip.missing && ! clip.rendering)
+        paintFades(g, clip, r);
+
     if (selected)
     {
         g.setColour(theme::text);
         g.drawRoundedRectangle(r.expanded(1.0f), 6.0f, 2.0f);
+    }
+    if (clip.id == hoverId || ((mode == Mode::fadeIn || mode == Mode::fadeOut) && clip.id == grabbedId))
+        paintFadeHandles(g, clip, r);
+}
+
+void TimelineLanes::paintFades(juce::Graphics& g, const engine::ClipInfo& clip, juce::Rectangle<float> r)
+{
+    if (clip.lengthSeconds <= 0.0 || r.getWidth() < 4.0f)
+        return;
+    const auto inW = static_cast<float>(clip.fadeIn / clip.lengthSeconds) * r.getWidth();
+    const auto outW = static_cast<float>(clip.fadeOut / clip.lengthSeconds) * r.getWidth();
+    // A linear fade: the part of the clip above the line is dimmed, and the line itself drawn.
+    const auto draw = [&](juce::Point<float> foot, juce::Point<float> top, juce::Point<float> corner) {
+        juce::Path shade;
+        shade.addTriangle(foot, top, corner);
+        g.setColour(theme::background.withAlpha(0.45f));
+        g.fillPath(shade);
+        g.setColour(clipInk.withAlpha(0.85f));
+        g.drawLine({foot, top}, 1.25f);
+    };
+    if (inW >= 1.0f)
+        draw({r.getX(), r.getBottom()}, {r.getX() + inW, r.getY()}, {r.getX(), r.getY()});
+    if (outW >= 1.0f)
+        draw({r.getRight(), r.getBottom()}, {r.getRight() - outW, r.getY()}, {r.getRight(), r.getY()});
+}
+
+void TimelineLanes::paintFadeHandles(juce::Graphics& g, const engine::ClipInfo& clip, juce::Rectangle<float> r)
+{
+    if (clip.lengthSeconds <= 0.0 || r.getWidth() < 24.0f)
+        return;
+    const auto inX = r.getX() + static_cast<float>(clip.fadeIn / clip.lengthSeconds) * r.getWidth();
+    const auto outX = r.getRight() - static_cast<float>(clip.fadeOut / clip.lengthSeconds) * r.getWidth();
+    for (const auto x : {inX, outX})
+    {
+        const auto box = juce::Rectangle<float>(6.0f, 6.0f).withCentre({x, r.getY() + 4.0f});
+        g.setColour(theme::text);
+        g.fillRect(box);
+        g.setColour(clipInk.withAlpha(0.8f));
+        g.drawRect(box, 1.0f);
     }
 }
 
@@ -893,11 +935,14 @@ void TimelineLanes::paintWaveform(juce::Graphics& g, const engine::ClipInfo& cli
     if (area.getIntersection(getLocalBounds().toFloat()).isEmpty())
         return;
 
-    // The forward stretch of the sound this clip plays (the reversed file plays it backwards: drawn mirrored).
-    const auto forwardStart = clip.reversed ? clip.sourceSeconds - clip.offsetSeconds - clip.lengthSeconds : clip.offsetSeconds;
+    // The forward stretch of the sound this clip plays (the reversed file plays it backwards: drawn mirrored). A warped clip
+    // shows the part of the sound it covers, stretched over its bars.
+    // The picture is made once for the whole loop of a looped clip (else for the clip's region) and cut into one piece per pass.
+    const auto region = waveformLoopRegion(clip);
+    const auto forwardStart = region.startSeconds;
     const int imageWidth = juce::jlimit(8, 800, juce::roundToInt(area.getWidth()));
     const int imageHeight = std::max(4, juce::roundToInt(area.getHeight()));
-    const auto key = clip.sourceId + "|" + juce::String(forwardStart, 4) + "|" + juce::String(clip.lengthSeconds, 4) + "|" + juce::String(clip.reversed ? 1 : 0)
+    const auto key = clip.sourceId + "|" + juce::String(forwardStart, 4) + "|" + juce::String(region.lengthSeconds, 4) + "|" + juce::String(clip.reversed ? 1 : 0)
                      + "|" + juce::String(imageHeight);
 
     auto& entry = waveCache[clip.id];
@@ -914,7 +959,7 @@ void TimelineLanes::paintWaveform(juce::Graphics& g, const engine::ClipInfo& cli
             ig.addTransform(juce::AffineTransform::scale(-1.0f, 1.0f).translated(static_cast<float>(imageWidth), 0.0f));
         ig.setColour(clipInk.withAlpha(0.6f));
         thumb->drawChannel(ig, {0, 0, imageWidth, imageHeight}, std::max(0.0, forwardStart),
-                           std::max(0.0, forwardStart + clip.lengthSeconds), 0, 1.0f);
+                           std::max(0.0, forwardStart + region.lengthSeconds), 0, 1.0f);
         entry.image = image;
         entry.key = key;
         entry.widthPx = area.getWidth();
@@ -929,13 +974,56 @@ void TimelineLanes::paintWaveform(juce::Graphics& g, const engine::ClipInfo& cli
     juce::Graphics::ScopedSaveState save(g);
     g.reduceClipRegion(getLocalBounds());
     g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
-    g.drawImage(entry.image, area, juce::RectanglePlacement::stretchToFit);
+    const auto pieces = waveformPieces(clip);
+    if (pieces.size() == 1 && ! clip.loop)
+    {
+        g.drawImage(entry.image, area, juce::RectanglePlacement::stretchToFit);
+        return;
+    }
+    // Looped: every pass is the part of the loop's picture that the clip plays in it, stretched to the pass; a mark at each repeat.
+    const auto imageW = static_cast<float>(entry.image.getWidth()), imageH = static_cast<float>(entry.image.getHeight());
+    for (const auto& piece : pieces)
+    {
+        const auto x0 = area.getX() + static_cast<float>(piece.from) * area.getWidth();
+        const auto x1 = area.getX() + static_cast<float>(piece.to) * area.getWidth();
+        if (x1 < 0.0f || x0 > static_cast<float>(getWidth()))
+            continue;
+        auto s0 = (piece.region.startSeconds - region.startSeconds) / region.lengthSeconds;
+        auto s1 = (piece.region.startSeconds + piece.region.lengthSeconds - region.startSeconds) / region.lengthSeconds;
+        if (region.mirrored) // the picture was drawn mirrored
+            std::tie(s0, s1) = std::pair<double, double>(1.0 - s1, 1.0 - s0);
+        const auto srcX = juce::roundToInt(static_cast<float>(s0) * imageW);
+        const auto srcW = std::max(1, juce::roundToInt(static_cast<float>(s1 - s0) * imageW));
+        g.drawImage(entry.image, juce::roundToInt(x0), juce::roundToInt(area.getY()), std::max(1, juce::roundToInt(x1 - x0)),
+                    juce::roundToInt(area.getHeight()), srcX, 0, srcW, juce::roundToInt(imageH));
+    }
+    g.setColour(clipInk.withAlpha(0.5f));
+    for (size_t i = 1; i < pieces.size(); ++i)
+    {
+        const auto x = area.getX() + static_cast<float>(pieces[i].from) * area.getWidth();
+        g.drawVerticalLine(juce::roundToInt(x), area.getY() - r.getHeight() * 0.44f + 2.0f, r.getBottom() - 2.0f);
+    }
 }
 
 void TimelineLanes::mouseMove(const juce::MouseEvent& e)
 {
     const auto hit = hitTestClip(view.laneClips(), view.layout(), view.viewport(), e.x, contentY(e.y));
     setMouseCursor(hit && hit->zone != ClipZone::body ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+    const auto over = hit ? juce::String(hit->id) : juce::String();
+    if (over != hoverId)
+    {
+        hoverId = over; // the fade handles of the clip under the mouse are drawn
+        repaint();
+    }
+}
+
+void TimelineLanes::mouseExit(const juce::MouseEvent&)
+{
+    if (hoverId.isNotEmpty() && mode == Mode::idle)
+    {
+        hoverId = {};
+        repaint();
+    }
 }
 
 void TimelineLanes::mouseDown(const juce::MouseEvent& e)
@@ -970,7 +1058,13 @@ void TimelineLanes::mouseDown(const juce::MouseEvent& e)
     if (hit->zone != ClipZone::body)
     {
         selection.setClips({grabbedId});
-        mode = hit->zone == ClipZone::leftEdge ? Mode::trimLeft : Mode::trimRight;
+        switch (hit->zone)
+        {
+            case ClipZone::leftEdge: mode = Mode::trimLeft; break;
+            case ClipZone::rightEdge: mode = Mode::trimRight; break;
+            case ClipZone::fadeInHandle: mode = Mode::fadeIn; break;
+            default: mode = Mode::fadeOut; break;
+        }
         return;
     }
     if (e.mods.isCommandDown() || e.mods.isShiftDown())
@@ -1002,6 +1096,8 @@ void TimelineLanes::mouseDrag(const juce::MouseEvent& e)
         case Mode::move: updateMove(e); break;
         case Mode::trimLeft:
         case Mode::trimRight: updateTrim(e); break;
+        case Mode::fadeIn:
+        case Mode::fadeOut: updateFade(e); break;
         case Mode::marquee:
         {
             const LaneRect box{downPos.x, contentY(downPos.y), lastPos.x - downPos.x, lastPos.y - downPos.y};
@@ -1050,10 +1146,7 @@ void TimelineLanes::updateTrim(const juce::MouseEvent& e)
     if (clip == nullptr)
         return;
     const auto map = commands::timeMapOf(view.context().arrangement);
-    commands::Span span;
-    span.start = clip->start;
-    span.length = clip->length;
-    span.offset = clip->offsetSeconds;
+    const auto span = commands::spanFor(*clip, view.trackIndexOf(clip->trackId));
     const auto minLength = std::max(Snap::minimumLength(view.snapValue(), view.timeSig(), 0.0),
                                     map.beatAfter(clip->start, engine::Arrangement::minClipSeconds) - clip->start);
     const auto edge = std::max(0.0, view.snapBeat(view.viewport().xToBeat(e.x), e.mods.isAltDown()));
@@ -1064,6 +1157,24 @@ void TimelineLanes::updateTrim(const juce::MouseEvent& e)
         end = commands::EditPlanner::clampTrimEnd(span, edge, clip->sourceSeconds, minLength, map);
     previews = {{clip->id, view.trackIndexOf(clip->trackId), start, end - start}};
     snapGuideBeat = mode == Mode::trimLeft ? start : end;
+}
+
+void TimelineLanes::updateFade(const juce::MouseEvent& e)
+{
+    const auto* clip = view.findClip(grabbedId);
+    if (clip == nullptr || clip->length <= 0.0 || clip->lengthSeconds <= 0.0)
+        return;
+    // Not snapped: the handle follows the mouse. In seconds of the clip (a warped clip's length in seconds is its timeline length).
+    const auto secondsPerBeat = clip->lengthSeconds / clip->length;
+    const auto beat = view.viewport().xToBeat(e.x);
+    const auto wanted = (mode == Mode::fadeIn ? beat - clip->start : clip->end() - beat) * secondsPerBeat;
+    const auto other = mode == Mode::fadeIn ? clip->fadeOut : clip->fadeIn;
+    const auto seconds = std::clamp(wanted, 0.0, std::max(0.0, clip->lengthSeconds - other));
+    commands::SetClipFades command(clip->id, mode == Mode::fadeIn ? seconds : clip->fadeIn, mode == Mode::fadeOut ? seconds : clip->fadeOut);
+    auto& service = view.context().commands;
+    if (! service.isGestureOpen())
+        service.begin("Set clip fades");
+    service.update(command); // heard at once; the gesture is one undo step
 }
 
 void TimelineLanes::mouseUp(const juce::MouseEvent& e)
@@ -1077,6 +1188,8 @@ void TimelineLanes::commitDrag()
 {
     const auto finished = mode;
     const auto result = previews;
+    if ((finished == Mode::fadeIn || finished == Mode::fadeOut) && view.context().commands.isGestureOpen())
+        view.context().commands.commit();
     mode = Mode::idle;
     previews.clear();
     snapGuideBeat.reset();
@@ -1112,6 +1225,8 @@ void TimelineLanes::commitDrag()
 
 void TimelineLanes::cancelDrag()
 {
+    if ((mode == Mode::fadeIn || mode == Mode::fadeOut) && view.context().commands.isGestureOpen())
+        view.context().commands.cancel();
     mode = Mode::idle;
     previews.clear();
     snapGuideBeat.reset();
@@ -1172,7 +1287,10 @@ void TimelineLanes::itemDropped(const SourceDetails& details)
     ghost.reset();
     repaint();
     const auto sourceId = details.description.toString().fromFirstOccurrenceOf("sample:", false, false);
-    commands::CreateClipsFromSources command({sourceId}, placementFor(target));
+    std::vector<engine::WarpSettings> warps;
+    if (const auto& defaultWarp = view.context().defaultWarp)
+        warps.push_back(defaultWarp(sourceId));
+    commands::CreateClipsFromSources command({sourceId}, placementFor(target), warps);
     view.applyCommand(command, true);
 }
 
@@ -1269,7 +1387,8 @@ void ArrangementView::refresh()
         if (index < 0)
             continue;
         clipsByTrack[static_cast<size_t>(index)].push_back(clip);
-        allLaneClips.push_back({clip.id.toStdString(), index, clip.start, clip.length});
+        const auto beatsPerSecond = clip.lengthSeconds > 0.0 ? clip.length / clip.lengthSeconds : 0.0;
+        allLaneClips.push_back({clip.id.toStdString(), index, clip.start, clip.length, clip.fadeIn * beatsPerSecond, clip.fadeOut * beatsPerSecond});
         existing.insert(clip.id);
         anyRendering = anyRendering || clip.rendering;
     }

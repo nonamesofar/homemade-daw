@@ -105,7 +105,9 @@ TEST_CASE("analysis fixtures have the lengths and truth the analysis tests rely 
     };
     const Expected expected[] = {{"break-90", 44100.0, 2, 470400, 90.0, 16},
                                  {"pattern-120-7s", 44100.0, 1, 308700, 120.0, 28},
-                                 {"loop-120-48k", 48000.0, 2, 192000, 120.0, 10}};
+                                 {"loop-120-48k", 48000.0, 2, 192000, 120.0, 10},
+                                 {"tone-440-100", 44100.0, 2, 423360, 100.0, 0},
+                                 {"pad-sustain-100", 44100.0, 2, 423360, 100.0, 0}};
     for (const auto& e : expected)
     {
         INFO(e.name);
@@ -122,6 +124,6 @@ TEST_CASE("analysis fixtures have the lengths and truth the analysis tests rely 
         const auto* onsets = truth["onsets"].getArray();
         REQUIRE(onsets != nullptr);
         CHECK(onsets->size() == e.hits);
-        CHECK(static_cast<int>(truth["firstBeatFrame"]) == static_cast<int>((*onsets)[0]));
+        CHECK(static_cast<int>(truth["firstBeatFrame"]) == (onsets->isEmpty() ? 0 : static_cast<int>((*onsets)[0])));
     }
 }

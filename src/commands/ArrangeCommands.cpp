@@ -50,6 +50,7 @@ std::map<int, juce::String> execute(ModelContext& context, const Plan& plan, con
             auto spec = specs[static_cast<size_t>(s.specIndex)];
             spec.start = s.start;
             spec.lengthSeconds = seconds;
+            spec.lengthBeats = spec.warp.active() ? s.length : 0.0; // a warped clip is placed in bars
             spec.offsetSeconds = s.offset;
             id = a.createClip(trackId(s.track), spec);
         }
@@ -91,7 +92,9 @@ struct Snapshot
     void restore(engine::Arrangement& a) const
     {
         for (const auto& before : clips)
-            if (const auto now = a.clip(before.id))
+            if (before.warp.active())
+                continue; // a warped clip keeps its start and its bars by itself (Arrangement::setTempo)
+            else if (const auto now = a.clip(before.id))
                 if (std::abs(now->start - before.start) > EditPlanner::epsilon
                     || std::abs(now->lengthSeconds - before.lengthSeconds) > 1.0e-6)
                     a.setClipBounds(before.id, before.trackId, before.start, before.lengthSeconds, before.offsetSeconds);
@@ -106,6 +109,23 @@ struct Snapshot
 } // namespace
 
 //==============================================================================
+Span spanFor(const engine::ClipInfo& clip, int trackIndex)
+{
+    Span s;
+    s.id = clip.id;
+    s.track = trackIndex;
+    s.start = clip.start;
+    s.length = clip.length;
+    s.offset = clip.offsetSeconds;
+    s.warpBpm = clip.warp.active() ? clip.warp.sourceBpm : 0.0;
+    if (clip.loop)
+    {
+        s.loopStart = clip.loopStart;
+        s.loopLength = clip.loopLength;
+    }
+    return s;
+}
+
 std::vector<Span> spansOf(const engine::Arrangement& a)
 {
     std::map<juce::String, int> indexOf;
@@ -114,15 +134,7 @@ std::vector<Span> spansOf(const engine::Arrangement& a)
         indexOf[tracks[i].id] = static_cast<int>(i);
     std::vector<Span> spans;
     for (const auto& clip : a.clips())
-    {
-        Span s;
-        s.id = clip.id;
-        s.track = indexOf[clip.trackId];
-        s.start = clip.start;
-        s.length = clip.length;
-        s.offset = clip.offsetSeconds;
-        spans.push_back(s);
-    }
+        spans.push_back(spanFor(clip, indexOf[clip.trackId]));
     return spans;
 }
 
@@ -161,13 +173,17 @@ juce::String clipCountName(const juce::String& verb, size_t count)
 
 //==============================================================================
 std::vector<juce::String> CreateClipsFromSources::place(ModelContext& context, const std::vector<juce::String>& sourceIds,
-                                                        PlacementTarget target)
+                                                        PlacementTarget target, const std::vector<engine::WarpSettings>& warps)
 {
     auto& a = arrangementOf(context);
     std::vector<engine::ClipSpec> specs;
-    for (const auto& id : sourceIds)
-        if (auto spec = specForSource(context, id); spec.sourceId.isNotEmpty() && spec.lengthSeconds > 0.0)
+    for (size_t i = 0; i < sourceIds.size(); ++i)
+        if (auto spec = specForSource(context, sourceIds[i]); spec.sourceId.isNotEmpty() && spec.lengthSeconds > 0.0)
+        {
+            if (i < warps.size() && warps[i].active())
+                spec.warp = warps[i];
             specs.push_back(spec);
+        }
     if (specs.empty())
         return {};
 
@@ -195,14 +211,15 @@ std::vector<juce::String> CreateClipsFromSources::place(ModelContext& context, c
         s.tag = static_cast<int>(i);
         s.track = track;
         s.start = beat;
-        s.length = time.beatAfter(beat, specs[i].lengthSeconds) - beat;
+        s.warpBpm = specs[i].warp.active() ? specs[i].warp.sourceBpm : 0.0;
+        s.length = beatAfterSoundSeconds(s, beat, specs[i].lengthSeconds, time) - beat;
         placed.push_back(s);
         beat = s.end();
     }
     return values(execute(context, EditPlanner::place(spansOf(a), placed, time), specs));
 }
 
-void CreateClipsFromSources::perform(ModelContext& context) { results = place(context, sources, where); }
+void CreateClipsFromSources::perform(ModelContext& context) { results = place(context, sources, where, warps); }
 
 void SlicesToTrack::perform(ModelContext& context)
 {
@@ -242,10 +259,18 @@ void SlicesToTrack::perform(ModelContext& context)
         spec.originSourceId = source.id();
         spec.originSlice = i;
         spec.pitch = settings.pitch;
+        double lengthBeats = 0.0;
+        if (warp.active())
+        {
+            spec.warp = warp;
+            spec.warp.transpose = juce::jlimit(-engine::WarpSettings::maxTranspose, engine::WarpSettings::maxTranspose, settings.pitch);
+            lengthBeats = lengthSeconds * warp.sourceBpm / 60.0;
+            spec.lengthBeats = lengthBeats;
+        }
         if (const auto clip = a.createClip(newTrackId, spec); clip.isNotEmpty())
             results.push_back(clip);
 
-        beat = time.beatAfter(beat, lengthSeconds);
+        beat = warp.active() ? beat + lengthBeats : time.beatAfter(beat, lengthSeconds);
         start = end;
     }
 }
@@ -268,7 +293,7 @@ void ImportAndPlace::perform(ModelContext& context)
     model::SamplerState state(context.sampler);
     for (const auto& item : items)
         state.addSource(model::Source::create(item), &context.undo);
-    results = CreateClipsFromSources::place(context, toPlace, where);
+    results = CreateClipsFromSources::place(context, toPlace, where, warps);
 }
 
 void MoveClips::perform(ModelContext& context)
@@ -314,10 +339,26 @@ void SplitClips::perform(ModelContext& context)
         created[i].tag = static_cast<int>(i);
     Plan tagged = plan;
     tagged.created = created;
+    std::map<juce::String, engine::ClipInfo> before; // the fades of the clips that are split
+    for (const auto& s : created)
+        if (const auto info = a.clip(s.copyOf))
+            before.emplace(s.copyOf, *info);
     for (const auto& s : plan.changed)
         results.push_back(s.id);
-    for (const auto& id : values(execute(context, tagged)))
+    const auto tags = execute(context, tagged);
+    for (const auto& id : values(tags))
         results.push_back(id);
+
+    // The fade in stays on the first part and the fade out on the second (the cut itself keeps the short declick).
+    for (size_t i = 0; i < created.size(); ++i)
+    {
+        const auto found = before.find(created[i].copyOf);
+        const auto right = tags.find(static_cast<int>(i));
+        if (found == before.end() || right == tags.end())
+            continue;
+        a.setClipFades(created[i].copyOf, found->second.fadeIn, 0.0);
+        a.setClipFades(right->second, 0.0, found->second.fadeOut);
+    }
 }
 
 void DuplicateClips::perform(ModelContext& context)
@@ -372,13 +413,22 @@ void PasteClips::perform(ModelContext& context)
         spec.name = record.name;
         spec.gainDb = record.gainDb;
         spec.reversed = record.reversed;
+        if (record.warp.active())
+            spec.warp = record.warp;
+        spec.loopStart = record.loopStart;
+        spec.loopLength = record.loopLength;
+        spec.fadeIn = record.fadeIn;
+        spec.fadeOut = record.fadeOut;
         Span s;
         s.specIndex = static_cast<int>(specs.size());
         s.tag = s.specIndex;
         s.track = juce::jlimit(0, a.numTracks() - 1, track + record.trackOffset);
         s.start = std::max(0.0, beat + record.startOffset);
-        s.length = time.beatAfter(s.start, record.lengthSeconds) - s.start;
+        s.warpBpm = spec.warp.active() ? spec.warp.sourceBpm : 0.0;
+        s.length = spec.warp.active() ? record.lengthBeats : time.beatAfter(s.start, record.lengthSeconds) - s.start;
         s.offset = record.offsetSeconds;
+        s.loopStart = record.loopStart;
+        s.loopLength = record.loopLength;
         specs.push_back(spec);
         placed.push_back(s);
     }
@@ -400,7 +450,81 @@ void SetClipStart::perform(ModelContext& context)
     results = {clipId};
 }
 
+void SetClipLoop::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    if (! a.clip(clipId))
+        return;
+    a.setClipLoop(clipId, on);
+    results = {clipId};
+}
+
+void SetClipLength::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto spans = spansOf(a);
+    auto span = findSpan(spans, clipId);
+    const auto info = a.clip(clipId);
+    if (! span || ! info)
+        return;
+    const auto time = timeMapOf(a);
+    const auto shortest = std::max(1.0e-3, time.beatAfter(span->start, engine::Arrangement::minClipSeconds) - span->start);
+    // Without loop the sound is the limit (clampTrimEnd); a looped clip may repeat its loop.
+    span->length = EditPlanner::clampTrimEnd(*span, span->start + std::max(beats, 0.0), info->sourceSeconds, shortest, time) - span->start;
+    span->tag = 0;
+    execute(context, EditPlanner::place(spans, {*span}, time));
+    results = {clipId};
+}
+
+void SetClipFades::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    if (! a.clip(clipId))
+        return;
+    a.setClipFades(clipId, std::max(0.0, fadeIn), std::max(0.0, fadeOut));
+    results = {clipId};
+}
+
 void SetClipReversed::perform(ModelContext& context) { arrangementOf(context).setClipReversed(clipId, reversed); }
+
+void SetClipWarp::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    const auto info = a.clip(clipId);
+    if (! info)
+        return;
+    auto settings = info->warp;
+    settings.on = on;
+    settings.mode = mode;
+    if (sourceBpm > 0.0)
+        settings.sourceBpm = juce::jlimit(engine::WarpSettings::minBpm, engine::WarpSettings::maxBpm, sourceBpm);
+    if (settings.on && ! settings.active())
+        return; // WARP needs a tempo
+    if (settings == info->warp)
+        return;
+
+    // The clip keeps its start and the part of its sound; its length follows (bars when warped, seconds when not).
+    a.setClipWarp(clipId, settings);
+    const auto spans = spansOf(a);
+    if (auto span = findSpan(spans, clipId))
+    {
+        span->tag = 0;
+        execute(context, EditPlanner::place(spans, {*span}, timeMapOf(a)));
+    }
+    results = {clipId};
+}
+
+void SetClipTranspose::perform(ModelContext& context)
+{
+    auto& a = arrangementOf(context);
+    if (const auto info = a.clip(clipId))
+    {
+        const auto clamped = juce::jlimit(-engine::WarpSettings::maxTranspose, engine::WarpSettings::maxTranspose, std::round(st * 100.0) / 100.0);
+        if (clamped != info->warp.transpose)
+            a.setClipTranspose(clipId, clamped);
+        results = {clipId};
+    }
+}
 
 //==============================================================================
 void AddTrack::perform(ModelContext& context)
@@ -568,7 +692,7 @@ void SetTempo::perform(ModelContext& context)
     if (! baseline)
         baseline = a.clips(); // before any change of this command; later updates of a drag restore from it
     const Snapshot before(*baseline, a.loopRange());
-    a.setTempo(bpm);
+    a.setTempo(bpm, ! deferRenders);
     before.restore(a);
     execute(context, EditPlanner::shortenOverlaps(spansOf(a)));
 }

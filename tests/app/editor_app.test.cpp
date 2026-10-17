@@ -117,12 +117,12 @@ TEST_CASE("a sound without analysis shows Analysing... and then the tempo, and t
     }
     REQUIRE(target.getChildFile("cache").deleteRecursively());
 
-    // Open the saved project in a new window: nothing is analysed until the sound is opened in the editor.
+    // Open the saved project in a new window: the open queues the analysis, and its result is only taken in by the message
+    // loop, so the editor opened before the first pump still shows the job running.
     juce::ScopedJuceInitialiser_GUI juceInit;
     sampler::app::AppController controller(Session::options("editor-analysing-b"));
     sampler::app::MainComponent main(controller);
     REQUIRE(controller.openProject(target));
-    pump();
     const auto id = sampler::model::SamplerState(controller.project().samplerState()).sourceAt(0).id();
     REQUIRE_FALSE(controller.isDirty());
 

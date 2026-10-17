@@ -2,6 +2,8 @@
 # Signalsmith Stretch/Linear and r8brain-free-src are header-only (r8brain uses its built-in Ooura FFT).
 add_library(sampler_render STATIC
     SliceBuffer.h SliceBank.h
+    PitchShift.cpp PitchShift.h
+    BeatsRenderer.cpp BeatsRenderer.h
     SliceRenderer.cpp SliceRenderer.h
     RenderScheduler.cpp RenderScheduler.h)
 target_include_directories(sampler_render PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)

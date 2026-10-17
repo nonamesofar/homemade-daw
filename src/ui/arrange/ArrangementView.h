@@ -54,6 +54,9 @@ struct ArrangeContext
     /** The takes that are growing right now (empty unless recording). */
     std::function<std::vector<LiveTake>()> liveTakes;
     std::function<bool()> isRecording;
+
+    /** The warp settings a clip of this sound starts with when it is dropped from the browser (WARP off when unset). */
+    std::function<engine::WarpSettings(const juce::String& sourceId)> defaultWarp;
 };
 
 class ArrangementView;
@@ -182,6 +185,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
@@ -200,7 +204,9 @@ public:
     void fileDragExit(const juce::StringArray&) override;
     void filesDropped(const juce::StringArray&, int x, int y) override;
 
-    /** True while a clip move, trim or marquee is in progress. */
+    /** The clip the mouse is over (its fade handles are drawn); empty when none. */
+    juce::String hoveredClip() const { return hoverId; }
+    /** True while a clip move, trim, fade drag or marquee is in progress. */
     bool isDragging() const { return mode != Mode::idle; }
     void cancelDrag();
     /** Where the ghost of a dragged sound would land (for tests and painting). */
@@ -219,6 +225,8 @@ private:
         move,
         trimLeft,
         trimRight,
+        fadeIn,
+        fadeOut,
         marquee
     };
 
@@ -243,14 +251,18 @@ private:
     commands::PlacementTarget placementFor(const DropTarget&) const;
     void paintClip(juce::Graphics&, const engine::ClipInfo&, juce::Rectangle<float>, juce::Colour, bool selected, bool ghostOnly);
     void paintWaveform(juce::Graphics&, const engine::ClipInfo&, juce::Rectangle<float>, juce::Colour);
+    void paintFades(juce::Graphics&, const engine::ClipInfo&, juce::Rectangle<float>);
+    void paintFadeHandles(juce::Graphics&, const engine::ClipInfo&, juce::Rectangle<float>);
     void paintLiveTakes(juce::Graphics&);
     void updateMove(const juce::MouseEvent&);
     void updateTrim(const juce::MouseEvent&);
+    void updateFade(const juce::MouseEvent&);
     void commitDrag();
 
     ArrangementView& view;
     Mode mode = Mode::idle;
     juce::String grabbedId;
+    juce::String hoverId;
     double grabOffsetBeats = 0.0;
     juce::Point<float> downPos, lastPos;
     std::vector<Preview> previews;

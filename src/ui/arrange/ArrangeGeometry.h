@@ -96,6 +96,8 @@ struct LaneClip
     int track = 0;
     double start = 0.0;
     double length = 0.0;
+    double fadeIn = 0.0;  // beats; where the fade handles sit
+    double fadeOut = 0.0;
     double end() const { return start + length; }
 };
 
@@ -119,7 +121,9 @@ enum class ClipZone
 {
     body,
     leftEdge,
-    rightEdge
+    rightEdge,
+    fadeInHandle,  // top corners: sit at the end of the fade (at the corner while there is none)
+    fadeOutHandle
 };
 
 struct ClipHit
@@ -130,16 +134,30 @@ struct ClipHit
 
 /**
     The clip under (x, y) in lane coordinates with `view.scrollY` applied by the caller (y is content y). Edges are
-    `edgePx` wide inside the clip, and never more than a third of a narrow clip, so its body stays draggable.
+    `edgePx` wide inside the clip, and never more than a third of a narrow clip, so its body stays draggable. The fade
+    handles are `handlePx` either side of where each fade ends and win over the edges in the top `handleBandPx` of the
+    clip only; a clip narrower than four handles has none.
 */
 inline std::optional<ClipHit> hitTestClip(const std::vector<LaneClip>& clips, const ArrangeLayout& layout,
-                                          const ArrangeViewport& view, double x, double y, double edgePx = 6.0)
+                                          const ArrangeViewport& view, double x, double y, double edgePx = 6.0,
+                                          double handlePx = 6.0, double handleBandPx = 8.0)
 {
     for (auto it = clips.rbegin(); it != clips.rend(); ++it)
     {
         const auto r = clipRect(*it, layout, view);
         if (! r.contains(x, y))
             continue;
+        if (y - r.y < handleBandPx && r.w >= 4.0 * handlePx)
+        {
+            const auto inX = r.x + std::clamp(it->fadeIn * view.pixelsPerBeat, 0.0, r.w);
+            const auto outX = r.x + r.w - std::clamp(it->fadeOut * view.pixelsPerBeat, 0.0, r.w);
+            const auto nearIn = std::abs(x - inX) <= handlePx;
+            const auto nearOut = std::abs(x - outX) <= handlePx;
+            if (nearIn && (! nearOut || std::abs(x - inX) <= std::abs(x - outX)))
+                return ClipHit{it->id, ClipZone::fadeInHandle};
+            if (nearOut)
+                return ClipHit{it->id, ClipZone::fadeOutHandle};
+        }
         const auto edge = std::min(edgePx, r.w / 3.0);
         ClipHit hit{it->id, ClipZone::body};
         if (x - r.x < edge)

@@ -27,5 +27,7 @@ Two large cases are never committed. They are generated when needed:
 | `break-90.wav` + `.json` | 4 bars at 90 BPM, 44.1 kHz stereo, exactly 470400 frames; 16 hits (kick, snare, hat) one per beat after 100 ms of lead silence | M3 analysis tests and the sample editor demos (header "4 bars · 90 BPM", first beat on the first kick, slicing) |
 | `pattern-120-7s.wav` + `.json` | 7 s (3.5 bars, not a whole loop) of a steady 120 BPM pattern, mono; kick and snare on the beats, hats on the offbeats | tempo estimation without an exact loop length |
 | `loop-120-48k.wav` + `.json` | the 2-bar 120 BPM loop at 48 kHz, exactly 192000 frames | a rate other than 44.1 kHz (analysis, pads at the right pitch) |
+| `tone-440-100.wav` + `.json` | 4 bars at 100 BPM (9.6 s, exactly 423360 frames, 44.1 kHz stereo) of a sustained 440 Hz sine, 4224 whole cycles; tagged 100 BPM, no hits | M4a warp tests: pitch and length of Re-pitch and Tones, looping |
+| `pad-sustain-100.wav` + `.json` | the same length of a sustained A minor pad with slow vibrato, no hits | M4a Beats mode on a sound without hits (cut on the 1/16 grid) |
 
 Each `.json` truth file holds `tempo` (BPM), `sampleRate`, `frames`, `firstBeatFrame` and `onsets` (the first sample of every hit); the analysis tests and the accuracy suite compare against it. The `.json` files are plain text (not LFS).

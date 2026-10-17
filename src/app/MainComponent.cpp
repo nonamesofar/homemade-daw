@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 
+#include "io/WarpDefaults.h"
+
 #include "commands/Commands.h"
 #include "engine/Arrangement.h"
 #include "engine/LevelMeters.h"
@@ -17,7 +19,7 @@ constexpr int menuBarHeight = 24;
 constexpr int headerHeight = 60;
 constexpr int browserWidth = 264;
 constexpr int brandWidth = 184;
-constexpr int inspectorHeight = 200;
+constexpr int inspectorHeight = 256; // header 52 + warp row 56 + value cells 148
 
 std::set<juce::String> clipIdSet(const engine::Arrangement& a)
 {
@@ -132,13 +134,24 @@ void MainComponent::buildProjectViews()
                                &controller.recording().armState(),
                                [] { return platform::listPlaybackDevices(); },
                                [this] { return controller.recording().liveTakes(); },
-                               [this] { return controller.recording().isRecording(); }};
+                               [this] { return controller.recording().isRecording(); },
+                               [this](const juce::String& id) {
+                                   const auto source = model::SamplerState(controller.project().samplerState()).findSourceById(id);
+                                   return io::defaultWarpFor(source, controller.analyser());
+                               }};
     arrangementView = std::make_unique<ui::ArrangementView>(context);
     addAndMakeVisible(*arrangementView);
 
     clipInspector = std::make_unique<ui::ClipInspector>(project.arrangement(), controller.commandService(), selectionModel,
                                                         [this](const juce::String& id, juce::Component& target) {
                                                             return controller.makeThumbnail(id, target);
+                                                        },
+                                                        [this](const juce::String& id) {
+                                                            const auto source = model::SamplerState(controller.project().samplerState()).findSourceById(id);
+                                                            if (! source.isValid())
+                                                                return 0.0;
+                                                            const auto result = controller.analyser().find(source);
+                                                            return source.effectiveBpm(result != nullptr ? result->bpm() : 0.0);
                                                         });
     addAndMakeVisible(*clipInspector);
     clipInspector->onOpenEditor = [this](const juce::String& id) { openEditor(id); };

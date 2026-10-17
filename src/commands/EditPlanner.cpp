@@ -83,6 +83,16 @@ Plan diff(const std::vector<Span>& existing, const std::vector<Span>& working)
 }
 } // namespace
 
+double soundSecondsBetween(const Span& span, double fromBeat, double toBeat, const TimeMap& time)
+{
+    return span.warpBpm > 0.0 ? (toBeat - fromBeat) * 60.0 / span.warpBpm : time.secondsBetween(fromBeat, toBeat);
+}
+
+double beatAfterSoundSeconds(const Span& span, double fromBeat, double soundSeconds, const TimeMap& time)
+{
+    return span.warpBpm > 0.0 ? fromBeat + soundSeconds * span.warpBpm / 60.0 : time.beatAfter(fromBeat, soundSeconds);
+}
+
 TimeMap TimeMap::constantTempo(double bpm)
 {
     return {[bpm](double beats) { return beats * 60.0 / bpm; }, [bpm](double seconds) { return seconds * bpm / 60.0; }};
@@ -91,7 +101,12 @@ TimeMap TimeMap::constantTempo(double bpm)
 Span EditPlanner::withStart(const Span& span, double newStart, const TimeMap& time)
 {
     Span result = span;
-    result.offset = span.offset + time.secondsBetween(span.start, newStart);
+    result.offset = span.offset + soundSecondsBetween(span, span.start, newStart, time);
+    if (span.isLooped())
+    {
+        const auto into = std::fmod(result.offset - span.loopStart, span.loopLength);
+        result.offset = span.loopStart + (into < 0.0 ? into + span.loopLength : into);
+    }
     result.length = span.end() - newStart;
     result.start = newStart;
     return result;
@@ -161,7 +176,9 @@ Plan EditPlanner::shortenOverlaps(const std::vector<Span>& existing)
 
 double EditPlanner::clampTrimStart(const Span& span, double newStart, double minLength, const TimeMap& time)
 {
-    const auto earliest = std::max(0.0, time.beatAfter(span.start, -span.offset)); // where offset 0 would sit
+    // Where offset 0 would sit; a looped clip has no such limit, but its start is not moved earlier either (it would repeat
+    // backwards into a gap the user did not ask for).
+    const auto earliest = span.isLooped() ? span.start : std::max(0.0, beatAfterSoundSeconds(span, span.start, -span.offset, time));
     const auto latest = span.end() - minLength;
     if (latest < earliest)
         return std::min(span.start, std::max(earliest, newStart)); // already shorter than the minimum: it may only grow
@@ -170,7 +187,9 @@ double EditPlanner::clampTrimStart(const Span& span, double newStart, double min
 
 double EditPlanner::clampTrimEnd(const Span& span, double newEnd, double sourceSeconds, double minLength, const TimeMap& time)
 {
-    const auto latest = time.beatAfter(span.start, sourceSeconds - span.offset); // where the sound ends
+    const auto latest = span.isLooped()
+                            ? beatAfterSoundSeconds(span, span.start, sourceSeconds * maxLoopRepeats, time)
+                            : beatAfterSoundSeconds(span, span.start, sourceSeconds - span.offset, time); // where the sound ends
     const auto shortest = span.start + minLength;
     if (latest < shortest)
         return std::max(span.end(), std::min(latest, newEnd)); // already shorter than the minimum: it may only grow

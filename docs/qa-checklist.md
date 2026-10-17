@@ -22,7 +22,7 @@ Build the 16-bar, 4-track arrangement of `concepts/project/Arrangement.dc.html`:
 - [ ] Click on: a click per beat, accent on beat 1. Set 3/4: the ruler and the accent change; back to 4/4.
 - [ ] Mix: drag a track's dB readout (quieter while dragging, Ctrl+Z restores in one step), double-click for 0 dB; pan Bass fully left (only left ear); mute Drums (M button and M key), solo Bass, Ctrl+click solo on Drums.
 - [ ] Meters follow the hits and fall back smoothly; raise the master to +6 dB until the over light comes on; it stays on until clicked.
-- [ ] Select a clip: the bottom panel shows name, "Track · Bars a–b" and the waveform in the track colour; set GAIN -6 dB while playing (quieter); type START `9.1.1` (clip jumps there); two clips selected: "2 clips selected"; FADE IN and FADE OUT are greyed ("Open in sample editor" works since M3).
+- [ ] Select a clip: the bottom panel shows name, "Track · Bars a–b" and the waveform in the track colour; set GAIN -6 dB while playing (quieter); type START `9.1.1` (clip jumps there); two clips selected: "2 clips selected"; FADE IN and FADE OUT work since M4a (see "M4a Warp"), and "Open in sample editor" since M3.
 - [ ] Editing: drag a clip onto another (the one underneath is shortened), drop a short clip inside a long one (it splits and plays the right parts), trim edges, Ctrl+E, Ctrl+D, copy/paste on another track, Delete, Ctrl+Z / Ctrl+Y through all of it. The Edit menu names each step ("Undo Move 3 clips").
 - [ ] Snap: set 1/16 and drag (fine steps); hold Alt (free placement); 1/8T gives triplet steps.
 - [ ] Zoom with Ctrl+wheel around the mouse, scroll with the wheel, Shift+wheel and the scroll bars; Shift+Z shows the whole song, Z the selection.
@@ -75,7 +75,7 @@ Needs a browser with a video that has sound (YouTube) and the app built in relea
 
 ## M3 Sample editor
 
-**Last run:** _not yet_
+**Last run:** 2026-10-16 (PO demos D1 to D4)
 
 Use `tests/audio-fixtures/` (break-90.wav is the 4-bar, 90 BPM break with a known first kick; drums-loop-120.wav, loop-120-48k.wav and kick.wav for the rest) and the app built in release.
 
@@ -116,3 +116,40 @@ Use `tests/audio-fixtures/` (break-90.wav is the 4-bar, 90 BPM break with a know
 - [ ] Chop a break into 16 slices, play them from the pads, lay the slices out in the arrangement and play it.
 - [ ] `ctest --preset windows-msvc-debug -LE hardware` passes; `ctest --preset windows-msvc-debug -L hardware` and `-L slow` pass on this machine.
 
+## M4a Warp
+
+**Last run:** _not yet_
+
+Use `tests/audio-fixtures/` (`break-90.wav` is the 4-bar, 90 BPM break; `tone-440-100.wav` a sustained 440 Hz tone recorded at 100 BPM; `drums-loop-120.wav` and `kick.wav` for the rest) and the app built in release, in a new project at 120 BPM. Start Sampler from a normal (non-administrator) terminal, or dropping files from Explorer does not work.
+
+**D1: clips follow the tempo**
+
+- [ ] Import `break-90.wav` and wait for its tempo. Drag it onto track 1 at bar 1: the clip covers bars 1 to 4 and, played with the click on, every kick is on beat 1 (Beats is the default mode).
+- [ ] Type 100 BPM: the clip still covers bars 1 to 4 and plays slower, the hits still on the click. Ctrl+Z: 120 BPM at once, no "rendering".
+- [ ] Drop `kick.wav` at bar 5: it plays at its own speed (WARP off).
+- [ ] Open break-90 in the sample editor, Beat 1/4, "Slices to new track" at bar 9: the slices fill bars 9 to 12, each on a beat.
+- [ ] Close, delete the project's `cache` folder, reopen: no missing files, "rendering" shows briefly, then it plays the same. Open an M3 project: it sounds as before and is not marked as changed.
+
+**D2: warp controls in the bottom panel**
+
+- [ ] Import a loop and drag it straight onto a track without opening it in the sample editor (wait a moment after the import): it comes in warped in Beats at its tempo.
+- [ ] Select the break-90 clip: WARP on, MODE Beats, BPM 90.00, TRANSPOSE 0. Press ×2: BPM 180 and the clip covers 8 bars (twice the beats at twice the tempo); Ctrl+Z.
+- [ ] Choose Tones, then Re-pitch, then Beats, listening each time. Texture cannot be chosen.
+- [ ] In Beats set TRANSPOSE +7: higher, same length. Switch to Re-pitch: TRANSPOSE greys out showing +7 and the clip plays without it.
+- [ ] Turn WARP off: MODE and BPM grey out, the clip plays at its own speed and grows past bar 5 (the next clip is shortened). Ctrl+Z.
+- [ ] Select a take from M2b: WARP off; if its tempo is not known, WARP is disabled with "Tempo not known".
+
+**D3: loop, length and fades**
+
+- [ ] Select a 1-bar clip, turn LOOP on, type 8 in LENGTH: 8 bars, the bar repeats with no gap, marks at each repeat. Turn LOOP off: back to 1 bar. LOOP on again and drag its right edge to bar 4.
+- [ ] Split it at bar 3 with Ctrl+E: it plays the same.
+- [ ] Set FADE IN 500 ms while playing: heard at once and drawn. Type 800 ms in FADE IN on a 1 s clip with FADE OUT 600: it becomes 400.
+- [ ] Hover a clip and drag its top-right handle one bar left: a one-bar fade-out and the clip does not move; Ctrl+Z removes it. Escape in the middle of a handle drag changes nothing.
+- [ ] Loop a Tones clip (a melodic loop): listen at the joins for a click (the stretcher leaves a one-to-two-sample step at each loop point).
+- [ ] Save, quit, reopen: loops, lengths, fades, warp modes and transposes are as before.
+
+**Exit run**
+
+- [ ] Import `break-90.wav` and a melodic loop into a 120 BPM project. Chop the break into 16 slices and send them to a track. Arrange 8 bars with the melodic loop warped in Tones, a looped 1-bar clip and a faded ending.
+- [ ] Change the tempo to 100 and back to 120: everything stays in time (Beats hits on the click, Tones and loops keep their bars).
+- [ ] `ctest --preset windows-msvc-debug -LE hardware` and `ctest --preset windows-msvc-release -LE hardware` pass; `-L hardware` and `-L perf` pass in release on this machine.

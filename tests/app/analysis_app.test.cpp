@@ -6,6 +6,7 @@
 
 #include "app/AppController.h"
 #include "commands/Commands.h"
+#include "io/WarpDefaults.h"
 
 namespace
 {
@@ -94,6 +95,57 @@ TEST_CASE("a saved project reopens not dirty, and a tempo correction survives a 
     const auto reopened = sampler::model::SamplerState(controller.project().samplerState()).sourceAt(0);
     CHECK(reopened.tempoCorrection() == 92.0);
     CHECK_FALSE(reopened.hasBeatOffsetCorrection());
-    CHECK(controller.analyser().find(reopened) == nullptr); // nothing is analysed until the sound is opened in the editor
     CHECK_FALSE(controller.commandService().canUndo());
+
+    // The sound is analysed again in the background after the reopen, without opening it in the editor and without a dirty mark.
+    pumpUntil([&] { return ! controller.analyser().isBusy(); });
+    const auto again = controller.analyser().find(reopened);
+    REQUIRE(again != nullptr);
+    CHECK(again->bpm() == Catch::Approx(90.0).margin(0.5));
+    CHECK_FALSE(controller.isDirty());
+    CHECK_FALSE(controller.commandService().canUndo());
+}
+
+TEST_CASE("a sound that is analysed after import gets Beats at its tempo when dropped, without the sample editor", "[app][analysis]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    sampler::app::AppOptions options;
+    options.untitledRoot = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("sampler-tests/app-analysis4");
+    options.untitledRoot.deleteRecursively();
+    sampler::app::AppController controller(options);
+
+    controller.importFiles({fixture("break-90.wav")});
+    pumpUntil([&] { return ! controller.importer().isBusy() && controller.project().samplerState().getNumChildren() > 0; });
+    pumpUntil([&] { return ! controller.analyser().isBusy(); });
+    const auto source = sampler::model::SamplerState(controller.project().samplerState()).sourceAt(0);
+
+    const auto warp = sampler::io::defaultWarpFor(source, controller.analyser());
+    CHECK(warp.on);
+    CHECK(warp.mode == sampler::engine::WarpMode::beats);
+    CHECK(warp.sourceBpm == Catch::Approx(90.0).margin(0.5));
+}
+
+TEST_CASE("sounds of a reopened project with no analysis are queued without blocking", "[app][analysis]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    sampler::app::AppOptions options;
+    options.untitledRoot = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("sampler-tests/app-analysis5");
+    options.untitledRoot.deleteRecursively();
+    const auto target = options.untitledRoot.getChildFile("Many.sdaw");
+    sampler::app::AppController controller(options);
+    controller.chooseSaveLocation = [&target](std::function<void(juce::File)> answer) { answer(target); };
+
+    controller.importFiles({fixture("break-90.wav"), fixture("loop-120-48k.wav")});
+    pumpUntil([&] { return ! controller.importer().isBusy() && controller.project().samplerState().getNumChildren() == 2; });
+    pumpUntil([&] { return ! controller.analyser().isBusy(); });
+    controller.requestSave();
+    REQUIRE(target.getChildFile("cache").deleteRecursively());
+    REQUIRE(controller.openProject(target));
+
+    // The open call returned with the jobs only queued; they finish on the worker.
+    pumpUntil([&] { return ! controller.analyser().isBusy(); });
+    const auto state = sampler::model::SamplerState(controller.project().samplerState());
+    REQUIRE(state.numSources() == 2);
+    for (int i = 0; i < state.numSources(); ++i)
+        CHECK(controller.analyser().find(state.sourceAt(i)) != nullptr);
 }

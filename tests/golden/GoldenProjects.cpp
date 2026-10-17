@@ -41,13 +41,29 @@ juce::String addFixture(ArrangeFixture& f, const char* fileName, const juce::Str
 
 struct Sounds
 {
-    juce::String loop, kick, bass;
+    juce::String loop, kick, bass, breakBeat, tone;
 };
+
+/** Places a sound with warp settings (mode, the sound's own tempo, semitones). */
+juce::String placeWarped(ArrangeFixture& f, const juce::String& sound, int track, double beat, sampler::engine::WarpMode mode,
+                         double bpm, double transpose = 0.0)
+{
+    sampler::engine::WarpSettings w;
+    w.on = true;
+    w.mode = mode;
+    w.sourceBpm = bpm;
+    w.transpose = transpose;
+    cmd::CreateClipsFromSources command({sound}, {track, false, beat}, {w});
+    f.commands->apply(command);
+    REQUIRE(command.resultIds().size() == 1);
+    return command.resultIds().front();
+}
 
 Sounds addSounds(ArrangeFixture& f)
 {
     return {addFixture(f, "drums-loop-120.wav", "src_loop"), addFixture(f, "kick.wav", "src_kick"),
-            addFixture(f, "bass-phrase.flac", "src_bass")};
+            addFixture(f, "bass-phrase.flac", "src_bass"), addFixture(f, "break-90.wav", "src_break"),
+            addFixture(f, "tone-440-100.wav", "src_tone")};
 }
 
 void moreTracks(ArrangeFixture& f, int count)
@@ -129,6 +145,58 @@ const std::vector<Case>& cases()
              f.place(s.bass, 1, 8.0);
              f.commands->apply(std::make_unique<cmd::SetTempo>(90.0));
          }},
+        // M4a: warp. The 90 BPM break fills bars 1 to 4 of the 120 BPM project, hits on the beats.
+        {"warp-beats",
+         [](ArrangeFixture& f, const Sounds& s) {
+             moreTracks(f, 1);
+             placeWarped(f, s.breakBeat, 0, 0.0, sampler::engine::WarpMode::beats, 90.0);
+             f.place(s.kick, 1, 0.0);
+             f.place(s.kick, 1, 4.0); // a kick on every bar: the break's kicks line up with these
+         }},
+        // The 440 Hz tone (100 BPM) in a 130 BPM project: 4 bars, still 440 Hz.
+        {"warp-tones",
+         [](ArrangeFixture& f, const Sounds& s) {
+             f.commands->apply(std::make_unique<cmd::SetTempo>(130.0));
+             placeWarped(f, s.tone, 0, 0.0, sampler::engine::WarpMode::tones, 100.0);
+         }},
+        // The same tone at 150 BPM played like a turntable: faster and higher (660 Hz).
+        {"warp-repitch",
+         [](ArrangeFixture& f, const Sounds& s) {
+             f.commands->apply(std::make_unique<cmd::SetTempo>(150.0));
+             placeWarped(f, s.tone, 0, 0.0, sampler::engine::WarpMode::repitch, 100.0);
+         }},
+        // Warped clips of all three modes, placed at 120 BPM, then the tempo drops to 100 BPM: they keep their bars.
+        {"warp-tempo-change",
+         [](ArrangeFixture& f, const Sounds& s) {
+             moreTracks(f, 2);
+             placeWarped(f, s.breakBeat, 0, 0.0, sampler::engine::WarpMode::beats, 90.0);
+             placeWarped(f, s.tone, 1, 0.0, sampler::engine::WarpMode::tones, 100.0);
+             placeWarped(f, s.tone, 2, 16.0, sampler::engine::WarpMode::repitch, 100.0);
+             f.commands->apply(std::make_unique<cmd::SetTempo>(100.0));
+         }},
+        // The break in Beats mode a fourth up (+5 semitones): the same four bars, the hits still on the beats.
+        {"beats-transpose",
+         [](ArrangeFixture& f, const Sounds& s) {
+             placeWarped(f, s.breakBeat, 0, 0.0, sampler::engine::WarpMode::beats, 90.0, 5.0);
+         }},
+        // The first bar of the drum loop, looped over four bars.
+        {"clip-loop",
+         [](ArrangeFixture& f, const Sounds& s) {
+             const auto loop = f.place(s.loop, 0, 0.0);
+             f.commands->apply(std::make_unique<cmd::TrimClip>(loop, 0.0, 4.0, 0.25));
+             f.commands->apply(std::make_unique<cmd::SetClipLoop>(loop, true));
+             f.commands->apply(std::make_unique<cmd::SetClipLength>(loop, 16.0));
+         }},
+        // A fade in and a fade out on a tone; a clip with fades split in two (the fade in stays first, the fade out second).
+        {"fades",
+         [](ArrangeFixture& f, const Sounds& s) {
+             moreTracks(f, 1);
+             const auto tone = f.place(s.tone, 0, 0.0);
+             f.commands->apply(std::make_unique<cmd::SetClipFades>(tone, 0.5, 1.0));
+             const auto bass = f.place(s.bass, 1, 4.0);
+             f.commands->apply(std::make_unique<cmd::SetClipFades>(bass, 0.2, 0.4));
+             f.commands->apply(std::make_unique<cmd::SplitClips>(std::vector<juce::String>{bass}, 6.0));
+         }},
     };
     return all;
 }
@@ -149,7 +217,9 @@ double differenceDb(const juce::AudioBuffer<float>& a, const juce::AudioBuffer<f
 TEST_CASE("golden renders match their references", "[golden]")
 {
     const juce::File goldenDir(SAMPLER_GOLDEN_DIR);
-    const bool update = juce::SystemStats::getEnvironmentVariable("SAMPLER_UPDATE_GOLDEN", {}).isNotEmpty();
+    // SAMPLER_UPDATE_GOLDEN=1 rewrites every reference; a comma-separated list of case names rewrites only those.
+    const auto updateSetting = juce::SystemStats::getEnvironmentVariable("SAMPLER_UPDATE_GOLDEN", {});
+    const auto updateCases = juce::StringArray::fromTokens(updateSetting, ",", "");
     // Used to see a failure on purpose: SAMPLER_GOLDEN_GAIN_DB adds clip gain to every clip of every case.
     const auto extraGain = juce::SystemStats::getEnvironmentVariable("SAMPLER_GOLDEN_GAIN_DB", {});
 
@@ -174,7 +244,7 @@ TEST_CASE("golden renders match their references", "[golden]")
             REQUIRE(rendered.getNumSamples() > 0);
 
             const auto reference = goldenDir.getChildFile(juce::String(golden.name) + ".wav");
-            if (update)
+            if (updateSetting == "1" || updateCases.contains(golden.name))
             {
                 goldenDir.createDirectory();
                 reference.deleteFile();
@@ -194,6 +264,39 @@ TEST_CASE("golden renders match their references", "[golden]")
 }
 
 #ifdef SAMPLER_CLI_PATH
+TEST_CASE("sampler-cli renders a Beats project whose cache folder was deleted like the project with its cache", "[golden][cli]")
+{
+    const auto root = sampler::test::freshTempDir("golden-cli-beats");
+    juce::String error;
+    {
+        ArrangeFixture f("golden-cli-beats-project");
+        const auto sounds = addSounds(f);
+        placeWarped(f, sounds.breakBeat, 0, 0.0, sampler::engine::WarpMode::beats, 90.0);
+        const auto bundle = f.root.getChildFile("Beats.sdaw");
+        REQUIRE(f.project->saveAs(bundle, error));
+        f.commands.reset();
+        f.project.reset();
+
+        // The in-process render of the same project (it makes the renders), to compare with the tool's file.
+        auto project = sampler::ProjectEdit::open(f.host, bundle, error);
+        REQUIRE(project != nullptr);
+        REQUIRE(sampler::engine::renderToWav(*project, root.getChildFile("inprocess.wav"), {}, error));
+        project.reset();
+        REQUIRE(bundle.copyDirectoryTo(root.getChildFile("Beats.sdaw")));
+    }
+    REQUIRE(root.getChildFile("Beats.sdaw/cache").deleteRecursively());
+
+    juce::ChildProcess process;
+    const auto toolOut = root.getChildFile("tool.wav");
+    REQUIRE(process.start(juce::StringArray{SAMPLER_CLI_PATH, "render", root.getChildFile("Beats.sdaw").getFullPathName(), toolOut.getFullPathName()}));
+    const auto output = process.readAllProcessOutput();
+    REQUIRE(process.waitForProcessToFinish(120000));
+    INFO(output);
+    CHECK(process.getExitCode() == 0);
+    REQUIRE(toolOut.existsAsFile());
+    CHECK(differenceDb(sampler::test::readWav(toolOut), sampler::test::readWav(root.getChildFile("inprocess.wav"))) <= -90.0);
+}
+
 TEST_CASE("sampler-cli renders a generated project, and refuses a folder that is not a project", "[golden][cli]")
 {
     const auto root = sampler::test::freshTempDir("golden-cli");

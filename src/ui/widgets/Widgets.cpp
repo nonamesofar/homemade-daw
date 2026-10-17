@@ -29,11 +29,12 @@ void ToggleButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
 {
     const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
     const bool on = getToggleState();
-    g.setColour(on ? litColour : (down || highlighted ? theme::selected : theme::raised));
+    const float alpha = isEnabled() ? 1.0f : 0.45f;
+    g.setColour((on ? litColour : (down || highlighted ? theme::selected : theme::raised)).withMultipliedAlpha(alpha));
     g.fillRoundedRectangle(bounds, 5.0f);
-    g.setColour(on ? litColour : theme::border);
+    g.setColour((on ? litColour : theme::border).withMultipliedAlpha(alpha));
     g.drawRoundedRectangle(bounds, 5.0f, 1.0f);
-    g.setColour(on ? theme::background : theme::text);
+    g.setColour((on ? theme::background : theme::text).withMultipliedAlpha(alpha));
     g.setFont(Fonts::sans(12.0f, Fonts::Weight::semiBold));
     g.drawText(getButtonText(), getLocalBounds(), juce::Justification::centred);
 }
@@ -57,9 +58,20 @@ void SegmentedControl::setSelected(int index, bool notify)
         onChange(index);
 }
 
+void SegmentedControl::setItemEnabled(int index, bool enabled)
+{
+    if (enabled)
+        disabledItems.removeAllInstancesOf(index);
+    else
+        disabledItems.addIfNotAlreadyThere(index);
+    repaint();
+}
+
 void SegmentedControl::mouseDown(const juce::MouseEvent& e)
 {
-    if (const auto index = itemAt(e.getPosition()); index >= 0)
+    if (! isEnabled())
+        return;
+    if (const auto index = itemAt(e.getPosition()); index >= 0 && isItemEnabled(index))
         setSelected(index, true);
 }
 
@@ -76,12 +88,13 @@ void SegmentedControl::paint(juce::Graphics& g)
     {
         auto cell = area.withX(area.getX() + width * static_cast<float>(i)).withWidth(width);
         const bool on = i == selectedIndex;
+        const float alpha = ! isEnabled() ? 0.45f : (isItemEnabled(i) ? 1.0f : 0.4f);
         if (on)
         {
-            g.setColour(theme::accent);
+            g.setColour(theme::accent.withAlpha(alpha));
             g.fillRoundedRectangle(cell, 6.0f);
         }
-        g.setColour(on ? theme::background : theme::muted);
+        g.setColour((on ? theme::background : theme::muted).withAlpha(alpha));
         g.setFont(Fonts::sans(13.0f, on ? Fonts::Weight::semiBold : Fonts::Weight::medium));
         g.drawText(items[i], cell.toNearestInt(), juce::Justification::centred);
     }
@@ -168,6 +181,8 @@ void ValueField::mouseUp(const juce::MouseEvent& e)
 
 void ValueField::mouseDoubleClick(const juce::MouseEvent&)
 {
+    if (! isEnabled())
+        return;
     if (doubleClickResets)
     {
         setValue(range.defaultValue, true);

@@ -294,3 +294,129 @@ TEST_CASE("keyboard routing: held transport keys do not repeat", "[ui][keys]")
     down = true;
     CHECK(router.acceptsTransportKey(space)); // pressed again after release
 }
+
+TEST_CASE("a warped clip's waveform is stretched over its bars, so the hits of the sound fall on the beats", "[ui][waveform][warp]")
+{
+    // break-90: 4 bars at 90 BPM, 16 hits one beat apart (truth file); played as a Beats clip at 120 BPM over bars 1 to 4.
+    const auto truth = juce::JSON::parse(juce::File(SAMPLER_FIXTURES_DIR).getChildFile("break-90.json"));
+    REQUIRE(truth.isObject());
+    const auto* onsets = truth["onsets"].getArray();
+    REQUIRE(onsets != nullptr);
+    REQUIRE(onsets->size() == 16);
+    const auto rate = static_cast<double>(truth["sampleRate"]);
+
+    sampler::engine::ClipInfo clip;
+    clip.sourceSeconds = static_cast<double>(static_cast<juce::int64>(truth["frames"])) / rate;
+    clip.start = 0.0;
+    clip.length = 16.0;
+    clip.lengthSeconds = 8.0;
+    clip.warp.on = true;
+    clip.warp.sourceBpm = 90.0;
+    REQUIRE(clip.warp.active());
+
+    const auto region = waveformRegionOf(clip);
+    CHECK(region.startSeconds == Approx(0.0));
+    CHECK(region.lengthSeconds == Approx(clip.sourceSeconds)); // the whole sound, not the 8 s of the timeline
+    CHECK_FALSE(region.mirrored);
+
+    const double widthPx = 16.0 * 20.0; // 20 px per beat
+    const auto firstX = waveformShare(region, static_cast<double>(static_cast<juce::int64>((*onsets)[0])) / rate) * widthPx;
+    for (int k = 0; k < 16; ++k)
+    {
+        const auto x = waveformShare(region, static_cast<double>(static_cast<juce::int64>((*onsets)[static_cast<size_t>(k)])) / rate) * widthPx;
+        INFO("hit " << k);
+        CHECK(x - firstX == Approx(k * 20.0).margin(0.01)); // exactly one beat apart on screen
+    }
+    // The first hit is the sound's 100 ms lead scaled to the project tempo (75 ms), like in the sound itself.
+    CHECK(firstX / 20.0 * 0.5 == Approx(0.075).margin(1.0e-4));
+
+    // Without warp the picture covers the seconds of the clip; reversed it is mirrored.
+    sampler::engine::ClipInfo plain = clip;
+    plain.warp.on = false;
+    plain.lengthSeconds = 3.0;
+    plain.offsetSeconds = 1.0;
+    CHECK(waveformRegionOf(plain).lengthSeconds == Approx(3.0));
+    plain.reversed = true;
+    const auto mirrored = waveformRegionOf(plain);
+    CHECK(mirrored.mirrored);
+    CHECK(mirrored.startSeconds == Approx(clip.sourceSeconds - 1.0 - 3.0));
+    CHECK(waveformShare(mirrored, mirrored.startSeconds) == Approx(1.0));
+}
+
+namespace
+{
+sampler::engine::ClipInfo loopedClip()
+{
+    sampler::engine::ClipInfo c;
+    c.sourceSeconds = 4.0;
+    c.loop = true;
+    c.loopStart = 1.0;
+    c.loopLength = 1.0;
+    c.offsetSeconds = 1.0;
+    c.lengthSeconds = 4.0; // unwarped: four passes
+    return c;
+}
+} // namespace
+
+TEST_CASE("a clip without loop is drawn as one piece", "[ui][waveform]")
+{
+    sampler::engine::ClipInfo c;
+    c.sourceSeconds = 4.0;
+    c.offsetSeconds = 1.0;
+    c.lengthSeconds = 2.0;
+    const auto pieces = waveformPieces(c);
+    REQUIRE(pieces.size() == 1);
+    CHECK(pieces[0].from == 0.0);
+    CHECK(pieces[0].to == 1.0);
+    CHECK(pieces[0].region.startSeconds == Approx(1.0));
+    CHECK(pieces[0].region.lengthSeconds == Approx(2.0));
+}
+
+TEST_CASE("a looped clip is one piece per pass, each showing the loop", "[ui][waveform]")
+{
+    const auto pieces = waveformPieces(loopedClip());
+    REQUIRE(pieces.size() == 4);
+    for (size_t i = 0; i < pieces.size(); ++i)
+    {
+        CHECK(pieces[i].from == Approx(static_cast<double>(i) / 4.0));
+        CHECK(pieces[i].to == Approx(static_cast<double>(i + 1) / 4.0));
+        CHECK(pieces[i].region.startSeconds == Approx(1.0));
+        CHECK(pieces[i].region.lengthSeconds == Approx(1.0));
+    }
+}
+
+TEST_CASE("a looped clip that starts inside its loop and ends inside a pass", "[ui][waveform]")
+{
+    auto c = loopedClip();
+    c.offsetSeconds = 1.75; // starts a quarter pass before the end of the loop
+    c.lengthSeconds = 2.0;  // 0.25 + 1 + 0.75
+    const auto pieces = waveformPieces(c);
+    REQUIRE(pieces.size() == 3);
+    CHECK(pieces[0].region.startSeconds == Approx(1.75));
+    CHECK(pieces[0].region.lengthSeconds == Approx(0.25));
+    CHECK(pieces[0].to == Approx(0.125));
+    CHECK(pieces[1].region.startSeconds == Approx(1.0));
+    CHECK(pieces[1].region.lengthSeconds == Approx(1.0));
+    CHECK(pieces[2].region.lengthSeconds == Approx(0.75));
+    CHECK(pieces[2].to == Approx(1.0));
+}
+
+TEST_CASE("a reversed looped clip mirrors each piece within the sound", "[ui][waveform]")
+{
+    auto c = loopedClip();
+    c.reversed = true;
+    c.loopStart = 2.0; // in the reversed sound
+    c.offsetSeconds = 2.0;
+    const auto pieces = waveformPieces(c);
+    REQUIRE(!pieces.empty());
+    CHECK(pieces[0].region.mirrored);
+    CHECK(pieces[0].region.startSeconds == Approx(4.0 - 2.0 - 1.0)); // the forward position of that second
+}
+
+TEST_CASE("a very short loop makes a bounded number of pieces", "[ui][waveform]")
+{
+    auto c = loopedClip();
+    c.loopLength = 0.001;
+    c.lengthSeconds = 3.0;
+    CHECK(waveformPieces(c, 100).size() == 100);
+}

@@ -130,6 +130,38 @@ private:
 };
 
 //==============================================================================
+/**
+    The part of the sound a clip's waveform picture shows: the forward stretch of the sound the clip plays
+    (a reversed clip plays the reversed file, drawn mirrored). A warped clip covers `coveredSeconds` of its sound in its
+    length in bars, so the picture is stretched over the clip, which puts each hit of the sound on its beat.
+*/
+struct WaveformRegion
+{
+    double startSeconds = 0.0;
+    double lengthSeconds = 0.0;
+    bool mirrored = false;
+};
+WaveformRegion waveformRegionOf(const engine::ClipInfo&);
+/** Where a moment of the sound (seconds from its start) is drawn, as a share (0..1) of the clip's width; outside 0..1 when not in the region. */
+double waveformShare(const WaveformRegion&, double soundSeconds);
+
+/**
+    A part of a clip's picture: the region of the sound drawn between two shares (0..1) of the clip's width. A clip without
+    loop is one piece; a looped clip is one piece per pass (the first from where the clip starts inside the loop to its
+    end, then whole passes, the last one cut where the clip ends), so the picture repeats and `from` of every piece after
+    the first is where a loop mark is drawn. At most `maxPieces` are made.
+*/
+struct WaveformPiece
+{
+    double from = 0.0;
+    double to = 1.0;
+    WaveformRegion region;
+};
+std::vector<WaveformPiece> waveformPieces(const engine::ClipInfo&, int maxPieces = 512);
+/** The picture the pieces are cut from: the whole loop of a looped clip, else the clip's region (`waveformRegionOf`). */
+WaveformRegion waveformLoopRegion(const engine::ClipInfo&);
+
+//==============================================================================
 /** Copied clips relative to the earliest clip and the topmost track (arrangement spec, "Copy, cut and paste"). */
 namespace Clipboard
 {

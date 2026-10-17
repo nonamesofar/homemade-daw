@@ -1,6 +1,6 @@
 #include "render/SliceRenderer.h"
 
-#include <signalsmith-stretch/signalsmith-stretch.h>
+#include "render/PitchShift.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -15,7 +15,7 @@ namespace sampler::render
 {
 namespace
 {
-using Channels = std::array<std::vector<float>, 2>;
+using Channels = StereoChannels;
 
 Channels toStereo(const juce::AudioBuffer<float>& region)
 {
@@ -28,34 +28,6 @@ Channels toStereo(const juce::AudioBuffer<float>& region)
     std::copy_n(region.getReadPointer(0), frames, out[0].begin());
     std::copy_n(region.getReadPointer(region.getNumChannels() > 1 ? 1 : 0), frames, out[1].begin());
     return out;
-}
-
-/** Pitch shift keeping the length: `exact()` processes a whole buffer in one go, including the latency handling. */
-void pitchShift(Channels& audio, float semitones, double rate)
-{
-    const auto frames = audio[0].size();
-    signalsmith::stretch::SignalsmithStretch<float> stretch;
-    stretch.presetDefault(2, static_cast<float>(rate));
-    stretch.setTransposeSemitones(semitones);
-
-    // exact() needs at least one block of input; a shorter slice is padded with silence and trimmed afterwards.
-    const auto minimum = static_cast<size_t>(stretch.inputLatency() + stretch.outputLatency() + stretch.blockSamples()) * 2;
-    const auto padded = std::max(frames, minimum);
-    Channels in = audio;
-    Channels out;
-    for (size_t c = 0; c < 2; ++c)
-    {
-        in[c].resize(padded, 0.0f);
-        out[c].assign(padded, 0.0f);
-    }
-    const float* inPtr[2] = {in[0].data(), in[1].data()};
-    float* outPtr[2] = {out[0].data(), out[1].data()};
-    stretch.exact(inPtr, static_cast<int>(padded), outPtr, static_cast<int>(padded));
-    for (size_t c = 0; c < 2; ++c)
-    {
-        out[c].resize(frames);
-        audio[c] = std::move(out[c]);
-    }
 }
 
 Channels resample(const Channels& audio, double sourceRate, double outputRate)

@@ -5,6 +5,7 @@
 #include "commands/ArrangeCommands.h"
 #include "commands/Commands.h"
 #include "commands/SliceCommands.h"
+#include "io/WarpDefaults.h"
 #include "ui/look/Fonts.h"
 #include "ui/look/Theme.h"
 
@@ -594,7 +595,8 @@ void SampleEditorView::slicesToTrack()
 {
     if (! isOpen())
         return;
-    commands::SlicesToTrack command(openId, ctx.playheadBeat ? ctx.playheadBeat() : 0.0);
+    // The clips follow the project tempo when the sound's tempo is known (design D1).
+    commands::SlicesToTrack command(openId, ctx.playheadBeat ? ctx.playheadBeat() : 0.0, io::defaultWarpFor(source(), ctx.analysis));
     ctx.commands.apply(command);
     if (command.resultIds().empty())
         return;

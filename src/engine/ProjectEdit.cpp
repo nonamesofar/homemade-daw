@@ -5,6 +5,7 @@
 #include "EngineHost.h"
 #include "LevelMeters.h"
 #include "Transport.h"
+#include "WarpService.h"
 #include "EngineSetup.h"
 #include "model/Migrations.h"
 #include "model/SamplerState.h"
@@ -56,7 +57,11 @@ struct ProjectEdit::Impl
         recorder.reset();
         meters.reset();
         transport.reset();
+        warp.reset();
         arrangement.reset();
+        edit.reset();
+        // The engine keeps readers of the files it played open for a while; a closed project's folder must be deletable.
+        host.tracktionEngine().getAudioFileManager().releaseAllFiles();
     }
 
     /** Builds the facades over the loaded edit, adds the default track and notes missing files. */
@@ -68,6 +73,10 @@ struct ProjectEdit::Impl
         transport = std::make_unique<engine::Transport>(*edit, host);
         meters = std::make_unique<engine::LevelMeters>(*edit);
         recorder = std::make_unique<engine::EditTakeRecorder>(*edit);
+        // Renders that clips wait for (a new project has none; a deleted cache folder leaves some) start at once.
+        warp = std::make_unique<engine::WarpService>(*arrangement, [this] {
+            return edit->tempoSequence.toBeats(edit->getTransport().getPosition()).inBeats();
+        });
         for (const auto& clip : arrangement->clips())
         {
             if (! clip.missing)
@@ -84,6 +93,7 @@ struct ProjectEdit::Impl
     juce::ValueTree samplerNode;
     std::unique_ptr<engine::Arrangement> arrangement;
     std::unique_ptr<engine::Transport> transport;
+    std::unique_ptr<engine::WarpService> warp;
     std::unique_ptr<engine::LevelMeters> meters;
     std::unique_ptr<engine::EditTakeRecorder> recorder;
     juce::StringArray missing;
@@ -105,6 +115,7 @@ std::unique_ptr<ProjectEdit> ProjectEdit::createUntitled(EngineHost& host, const
         impl->recorder.reset();
         impl->meters.reset();
         impl->transport.reset();
+        impl->warp.reset();
         impl->arrangement.reset();
         impl->edit.reset(); // the edit must let go of its files before the half-made folder goes
         deleteFolder(bundle);
@@ -218,6 +229,11 @@ bool ProjectEdit::saveAs(const juce::File& requested, juce::String& error)
         return false;
     }
 
+    impl->warp->scan();
+    // Beats renders being written into cache/beats would stop the folder from being moved: let them finish (a few ms each).
+    for (const auto end = juce::Time::getMillisecondCounter() + 5000u; ! impl->warp->isIdle() && juce::Time::getMillisecondCounter() < end;)
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(10);
+
     const bool wasUntitled = impl->untitled;
     if (wasUntitled)
     {
@@ -261,6 +277,7 @@ bool ProjectEdit::saveAs(const juce::File& requested, juce::String& error)
         error = "Cannot write the project file.";
         return false;
     }
+    impl->warp->scan(); // a copied project has no cache/beats: the renders are made again
     return true;
 }
 
@@ -271,8 +288,10 @@ void ProjectEdit::discardUntitled()
     impl->recorder.reset();
     impl->meters.reset();
     impl->transport.reset();
+    impl->warp.reset();
     impl->arrangement.reset();
     impl->edit.reset();
+    impl->host.tracktionEngine().getAudioFileManager().releaseAllFiles();
     deleteFolder(impl->bundleDir);
 }
 
@@ -281,6 +300,7 @@ engine::Arrangement& ProjectEdit::arrangement() { return *impl->arrangement; }
 const engine::Arrangement& ProjectEdit::arrangement() const { return *impl->arrangement; }
 engine::Transport& ProjectEdit::transport() { return *impl->transport; }
 engine::LevelMeters& ProjectEdit::levelMeters() { return *impl->meters; }
+engine::WarpService& ProjectEdit::warpService() { return *impl->warp; }
 engine::TakeRecorder& ProjectEdit::takeRecorder() { return *impl->recorder; }
 te::Edit& ProjectEdit::tracktionEdit() { return *impl->edit; }
 juce::StringArray ProjectEdit::missingFiles() const { return impl->missing; }

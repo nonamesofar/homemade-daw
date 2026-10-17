@@ -376,7 +376,8 @@ TEST_CASE("clip inspector: one, none and several clips, and it follows edits", "
     CHECK(h.inspector->titleText() == "Break 90");
     CHECK(h.inspector->detailText() == juce::String::fromUTF8("Drums \xc2\xb7 Bars 5\xe2\x80\x93" "8"));
     CHECK(h.inspector->gain.isVisible());
-    CHECK_FALSE(h.inspector->fadeIn.isEnabled());
+    CHECK(h.inspector->fadeIn.isEnabled()); // fades work since M4a; only Texture waits for a later milestone
+    CHECK_FALSE(h.inspector->mode.isItemEnabled(ui::InspectorLogic::modeTexture));
     CHECK(h.inspector->openEditor.isEnabled()); // the sound's file is there
 
     // Moved two bars in the timeline: the panel follows at once.

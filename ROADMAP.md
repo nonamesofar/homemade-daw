@@ -3,8 +3,8 @@
 Source: `technical design/technical-design.md` §15 (the design doc stays authoritative for scope; this file tracks progress).
 Platform: Windows only for now (TODO-MAC). The MVP is M0 to M4.
 
-**Current milestone:** M3 Sample editor (M2b merged on 2026-10-12)
-**Last updated:** 2026-10-13
+**Current milestone:** M4a Warp (M3 accepted by the PO on 2026-10-16; M4 was split into M4a Warp and M4b Export on 2026-10-16)
+**Last updated:** 2026-10-17
 
 Legend: `[ ]` not started, `[x]` done and verified. Tick a scope item only when it works and was checked; tick the exit criterion only when it was demonstrated. Put the OpenSpec change name in the `Change:` line when a proposal exists.
 
@@ -73,23 +73,28 @@ Change: `m2b-capture` (proposed 2026-10-12; built as demos D1 to D4, see `opensp
 - [ ] **Exit:** play a YouTube video and record 1 minute onto an armed track: it appears in Recordings and as a clip at the playhead, with no DAW sound in it; resample 4 bars of the song from Master onto a new track and it lines up
 
 ## M3 Sample editor (4 to 5 wks)
-Change: `m3-sample-editor` (proposed 2026-10-12; built as demos D1 to D4, see `openspec/changes/m3-sample-editor/tasks.md`; analysis in the cache, slices saved per sound, pads in a separate preview edit. Implemented and tested on 2026-10-13 (tasks.md: 24 of 30 done; what is left is the four PO demos, CI on the branch and the exit run). The items below are ticked when the PO has seen them work.)
+Change: `m3-sample-editor` (proposed 2026-10-12; built as demos D1 to D4, see `openspec/changes/archive/2026-10-16-m3-sample-editor/tasks.md`; analysis in the cache, slices saved per sound, pads in a separate preview edit. Implemented and tested on 2026-10-13 (tasks.md: 24 of 30 done; the PO went through demos D1 to D4 and accepted M3 on 2026-10-16; CI on the branch was not confirmed in this session, task 5.1 stays open). Archived 2026-10-16.)
 
-- [ ] Onset + BPM analysis
-- [ ] Beat/Transient/Manual slicing
-- [ ] Markers and slice strip
-- [ ] `SlicePadPlugin`, pads and keyboard
-- [ ] Play modes
-- [ ] Slice renders
-- [ ] Slices -> new track
-- [ ] **Exit:** chop a break into 16, play the pads, lay the slices out in Arrange
+- [x] Onset + BPM analysis
+- [x] Beat/Transient/Manual slicing
+- [x] Markers and slice strip
+- [x] `SlicePadPlugin`, pads and keyboard
+- [x] Play modes
+- [x] Slice renders
+- [x] Slices -> new track
+- [x] **Exit:** chop a break into 16, play the pads, lay the slices out in Arrange
 
-## M4 Warp + export = MVP (3 to 4 wks)
-Change: _none yet_
+## M4a Warp (2 wks)
+Change: `m4a-warp` (proposed 2026-10-16; built as demos D1 to D3 on one branch, see `openspec/changes/m4a-warp/tasks.md`; clips follow the project tempo in Beats, Tones and Re-pitch mode, the clip's own tempo, transpose, loop and length, fades). All three demos were accepted by the PO (D1 on 2026-10-16, D2 and D3 on 2026-10-17); what is left is the CI run and the exit run with the PO. The items below are ticked when the PO has seen them work.
 
-- [ ] Warp modes: Re-pitch, Beats, Tones
-- [ ] Source BPM, clip loop/length
-- [ ] Fades UI
+- [x] Warp modes: Re-pitch, Beats, Tones (D1, D2)
+- [x] Source BPM, clip loop/length (D2, D3)
+- [x] Fades UI (D3)
+- [ ] **Exit:** chop a break into 16, send the slices to a track, arrange 8 bars with a warped melodic loop (Tones), a looped 1-bar clip and a faded ending; change the tempo to 100 and back: everything stays in time
+
+## M4b Export = MVP (1 to 2 wks)
+Change: _none yet_ (`m4b-export` is proposed next)
+
 - [ ] WAV/MP3/stems export
 - [ ] Autosave and recovery
 - [ ] Audio settings dialog (WASAPI exclusive; ASIO deferred)
@@ -187,3 +192,9 @@ Record decisions that came out of a milestone (for example a failed M0 check and
 - 2026-10-13: M3 pads. The pad player lives in a separate preview edit (`PadEngine`), not on a hidden track of the project edit; AGENTS.md "Pads" and design doc 4.1 and 7.4 say so. Pads skip the project master volume until M5. Slice buffers reach the audio thread as one `SliceBank` per pointer exchange, with a garbage FIFO for the last release.
 - 2026-10-13: M3 test status. Debug: all 477 non-hardware tests pass (serial run); release: all but one pass, and the 23 `hardware` and `slow` tests pass in release on the dev machine. The one failure is `TakeWriter: a long skipped span is silence, then the audio...` (M2b, `tests/platform/take_writer.test.cpp`): it fails in release on this machine every time (and once in debug under a parallel run), passes alone in debug, and links none of the M3 code, so it was left alone; the writer drops the audio after a 15 s gap when the producer outruns it. CI on the branch is still to be run by the PO.
 - 2026-10-13: M3 demo scripts corrected to what the specs give: Beat 1/4 on break-90 makes 17 slices (16 beats from the first kick plus the 100 ms before it, the "pickup" slice) and 1/16 makes 65, and doubling 90 BPM gives 180 BPM and 8 bars (not 2). Creating the pad player when the app starts made the first window slower to appear (some older GUI tests missed their 150 ms wait), so it is created when the first sound is opened in the editor.
+- 2026-10-16: M4a spike 1.1 (`WarpProbe`, details in `docs/m0-findings.md`). All four Tracktion checks passed, so no design D2 fallback is taken: Re-pitch by speed ratio gives 880.00 Hz, half the length, sample-exact start; Tones (auto-tempo + `rubberbandMelodic` + `LoopInfo` BPM) keeps 16 beats across a tempo change, keeps pitch (439.69 Hz) and renders identically twice, +7 st gives 660.8 Hz; loop ranges repeat without a gap on plain clips (`setLoopRange`) and Tones clips (`setLoopRangeBeats`), with a one-to-two-sample phase step at each Tones repeat (to be listened to in demo D3); a file made after the clip was created is heard by the next render with or without the reload call, and a played file cannot be replaced by a rename on Windows, so Beats renders always use a new name (the key).
+- 2026-10-16: M4 was split at the PO's request. M4a Warp (change `m4a-warp`) holds the warp modes, the clip's own tempo, transpose, loop, length and fades; M4b Export (export, autosave and recovery, audio settings, installer, MVP exit) follows. Design doc 15 changed to match.
+- 2026-10-16: M4a decision: a Beats clip is drawn as "rendering" and is silent while its render is pending (a few tens of ms for a 4-bar loop), like a reversed clip waiting for its proxy. Design doc 7.6 no longer promises the previous render or a Re-pitch fallback meanwhile: both need a second edit when the render finishes. The render is a whole-sound file `cache/beats/<key>.wav` named by its inputs; old files stay in the cache so undo needs no render; tempo drags only ask for the render of the final tempo.
+- 2026-10-17: M4a demo findings. D1: analysis was only started for new sounds, so a sound already in a project (older project, deleted cache) was never analysed until opened in the sample editor and a drop got WARP off; the project now queues the analysis of every sound when it opens (spec `audio-analysis` changed to match). D2: doubling a clip's tempo doubles its bars (a sound of fixed length holds twice the beats at twice the tempo); the `clip-warp` scenario and the demo script said it halves them and were corrected. Dropping files from Explorer does not work when Sampler is started from an administrator terminal (Windows blocks drags into an elevated process): start it from a normal terminal.
+- 2026-10-17: M4a loop design as built. A looped clip stores the part of the sound it repeats (`sampler_loopStart` and `sampler_loopLength`, seconds of the sound) and its start inside it is the clip's offset; Tracktion gets a loop range in timeline seconds (beats for Tones) with the position offset as the phase, which the render tests confirmed sample-exact, also for a split inside a pass. Turning LOOP or a fade off writes 0 over the property instead of removing it, because an undo puts a removed property back at the end of the node and changes the saved text. The left edge of a looped clip cannot be dragged earlier (it would repeat backwards); the right edge can go up to 50 times the sound. Fades are linear, stored in seconds, cut to the clip (the fade in wins in the command; the panel cuts the field being edited), and Tracktion's fade is the larger of the user fade and 3 ms.
+- 2026-10-17: M4a test status (task 4.1). Debug and release `-LE hardware`: all pass except `TakeWriter: a long skipped span...` (M2b, fails in release every time and under parallel runs in debug, passes alone in debug; unchanged since M3) and, only in some parallel debug runs, `a real import shows progress and clears it when done` (expects the progress bar 20 ms after the import starts; passes alone 3 of 3) and `plugin editor opens, renders and answers a mouse click` (a synthetic click; passed in the next run). Release `-L perf`: all pass except `200 clips with waveforms paint under 8 ms` which had one 17 ms frame in about one run in five (median 1.3 ms, p95 3 ms); it passes the other runs. Release `-L hardware`: 18 of 22 pass; `a pad is heard while the project edit plays to the same device`, the two `the real source records...` tests and `without exclusion and without the mute...` fail because the loopback hears silence (0.0002) on this machine at the moment, also in the pad test that does not touch the arrangement; they were not run against a clean checkout, so whether the machine or the code changed since M3 is not proven. `real-time playback: transport sync...` failed once and passed once. ASan: the repo has no ASan preset or CI job yet (only the plan in AGENTS.md), so a release build with `/fsanitize=address` was made by hand (`cmake -B build/asan` with `/DWIN32 /D_WINDOWS /EHsc /Zi /fsanitize=address`, and `clang_rt.asan_dynamic-x86_64.dll` on PATH to run it) for `sampler_render_tests`, `sampler_ui_tests` and `sampler_arrange_tests` (the warp, loop, fade, command, engine, inspector and timeline code): all 226 cases pass with no ASan report. The app, io, engine and golden test executables were not built with ASan.

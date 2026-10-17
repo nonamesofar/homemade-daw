@@ -4,6 +4,7 @@ add_library(sampler_engine STATIC
     EngineSetup.cpp EngineSetup.h
     ProjectEdit.cpp ProjectEdit.h
     Arrangement.cpp Arrangement.h
+    WarpService.cpp WarpService.h
     Transport.cpp Transport.h
     LevelMeters.cpp LevelMeters.h
     OfflineRender.cpp OfflineRender.h

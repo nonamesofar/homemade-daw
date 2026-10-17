@@ -100,6 +100,12 @@ void AppController::attachProject(std::unique_ptr<ProjectEdit> project)
     analysisService->onFailed = [this](const juce::String&) { sendChangeMessage(); };
     watchedState = edit->samplerState();
     watchedState.addListener(this);
+    // Sounds already in the project (older projects, a deleted cache) get their analysis too, so that a drop gets its warp default.
+    {
+        const model::SamplerState sampler(watchedState);
+        for (int i = 0; i < sampler.numSources(); ++i)
+            analysisService->request(sampler.sourceAt(i));
+    }
     if (const auto missing = edit->missingFiles(); ! missing.isEmpty())
         toast("Missing audio: " + missing.joinIntoString(", ") + ". Those clips stay silent.", true);
     if (onProjectAttached)

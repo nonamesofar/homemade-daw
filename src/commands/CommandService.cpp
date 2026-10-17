@@ -70,8 +70,20 @@ std::optional<juce::String> findArrangementViolation(const engine::Arrangement& 
             return "clip " + clip.name + " plays a sound that is not in the project (" + clip.sourceId + ")";
         if (clip.offsetSeconds < -toleranceSeconds)
             return "clip " + clip.name + " starts before its sound";
-        if (clip.sourceSeconds > 0.0 && clip.offsetSeconds + clip.lengthSeconds > clip.sourceSeconds + toleranceSeconds)
+        if (clip.loop)
+        {
+            // A looped clip repeats its loop, so only the loop has to lie inside the sound, and the clip starts inside it.
+            if (clip.sourceSeconds > 0.0 && clip.loopStart + clip.loopLength > clip.sourceSeconds + toleranceSeconds)
+                return "clip " + clip.name + " loops past the end of its sound";
+            if (clip.offsetSeconds < clip.loopStart - toleranceSeconds || clip.offsetSeconds > clip.loopStart + clip.loopLength + toleranceSeconds)
+                return "clip " + clip.name + " starts outside its loop";
+        }
+        else if (clip.sourceSeconds > 0.0 && clip.offsetSeconds + clip.coveredSeconds() > clip.sourceSeconds + toleranceSeconds)
             return "clip " + clip.name + " runs past the end of its sound";
+        if (clip.warp.on && ! clip.warp.active())
+            return "clip " + clip.name + " is warped without a tempo in range (" + juce::String(clip.warp.sourceBpm) + ")";
+        if (clip.fadeIn < 0.0 || clip.fadeOut < 0.0 || clip.fadeIn + clip.fadeOut > clip.lengthSeconds + toleranceSeconds)
+            return "clip " + clip.name + " has fades longer than the clip";
         if (clip.lengthSeconds <= 0.0)
             return "clip " + clip.name + " has no length";
         byTrack[clip.trackId].push_back(clip);

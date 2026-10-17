@@ -224,6 +224,69 @@ void SelectionModel::afterHistoryChange(const std::set<juce::String>& before, co
 }
 
 //==============================================================================
+WaveformRegion waveformRegionOf(const engine::ClipInfo& clip)
+{
+    WaveformRegion region;
+    region.lengthSeconds = clip.coveredSeconds();
+    region.mirrored = clip.reversed;
+    region.startSeconds = clip.reversed ? clip.sourceSeconds - clip.offsetSeconds - region.lengthSeconds : clip.offsetSeconds;
+    return region;
+}
+
+double waveformShare(const WaveformRegion& region, double soundSeconds)
+{
+    if (region.lengthSeconds <= 0.0)
+        return 0.0;
+    const auto share = (soundSeconds - region.startSeconds) / region.lengthSeconds;
+    return region.mirrored ? 1.0 - share : share;
+}
+
+WaveformRegion waveformLoopRegion(const engine::ClipInfo& clip)
+{
+    if (! clip.loop || clip.loopLength <= 0.0)
+        return waveformRegionOf(clip);
+    WaveformRegion region;
+    region.lengthSeconds = clip.loopLength;
+    region.mirrored = clip.reversed;
+    region.startSeconds = clip.reversed ? clip.sourceSeconds - clip.loopStart - clip.loopLength : clip.loopStart;
+    return region;
+}
+
+std::vector<WaveformPiece> waveformPieces(const engine::ClipInfo& clip, int maxPieces)
+{
+    if (! clip.loop || clip.loopLength <= 0.0)
+        return {{0.0, 1.0, waveformRegionOf(clip)}};
+
+    const auto total = clip.coveredSeconds();
+    const auto regionOf = [&clip](double offset, double length) {
+        WaveformRegion region;
+        region.lengthSeconds = length;
+        region.mirrored = clip.reversed;
+        region.startSeconds = clip.reversed ? clip.sourceSeconds - offset - length : offset;
+        return region;
+    };
+    std::vector<WaveformPiece> pieces;
+    const auto loopEnd = clip.loopStart + clip.loopLength;
+    auto length = std::min(total, std::max(0.0, loopEnd - clip.offsetSeconds));
+    double done = 0.0;
+    auto offset = clip.offsetSeconds;
+    constexpr double eps = 1.0e-9;
+    while (done < total - eps && static_cast<int>(pieces.size()) < maxPieces)
+    {
+        if (length <= eps)
+        {
+            offset = clip.loopStart; // standing at the end of the loop: start the next pass
+            length = std::min(clip.loopLength, total - done);
+        }
+        pieces.push_back({done / total, (done + length) / total, regionOf(offset, length)});
+        done += length;
+        offset = clip.loopStart;
+        length = std::min(clip.loopLength, total - done);
+    }
+    return pieces;
+}
+
+//==============================================================================
 namespace Clipboard
 {
 std::vector<commands::ClipRecord> recordsFor(const std::vector<engine::ClipInfo>& clips,
@@ -250,6 +313,15 @@ std::vector<commands::ClipRecord> recordsFor(const std::vector<engine::ClipInfo>
         r.offsetSeconds = c.offsetSeconds;
         r.gainDb = c.gainDb;
         r.reversed = c.reversed;
+        r.warp = c.warp;
+        r.lengthBeats = c.length;
+        if (c.loop)
+        {
+            r.loopStart = c.loopStart;
+            r.loopLength = c.loopLength;
+        }
+        r.fadeIn = c.fadeIn;
+        r.fadeOut = c.fadeOut;
         records.push_back(r);
     }
     return records;

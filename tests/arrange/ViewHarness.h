@@ -36,15 +36,17 @@ struct ViewHarness
                                    &arms,
                                    [this] { return devices; },
                                    [this] { return live; },
-                                   [this] { return ! live.empty(); }};
+                                   [this] { return ! live.empty(); },
+                                   [this](const juce::String& id) { return defaultWarp ? defaultWarp(id) : engine::WarpSettings{}; }};
         view = std::make_unique<ui::ArrangementView>(context);
         view->setSize(1200, 600);
         ui::HeaderContext header{p.arrangement(), p.transport(), p.levelMeters(), *f.commands, selection,
                                  [this] { return snap; }, [this](ui::SnapValue v) { snap = v; }};
         headerBar = std::make_unique<ui::HeaderBar>(header);
         headerBar->setSize(1100, 60);
-        inspector = std::make_unique<ui::ClipInspector>(p.arrangement(), *f.commands, selection, nullptr);
-        inspector->setSize(1000, 200);
+        inspector = std::make_unique<ui::ClipInspector>(p.arrangement(), *f.commands, selection, nullptr,
+                                                        [this](const juce::String&) { return soundBpm; });
+        inspector->setSize(1000, 256);
         selection.onChange = [this] { inspector->refresh(); };
         view->viewport().pixelsPerBeat = 20.0;
         view->viewport().firstBeat = 0.0;
@@ -114,6 +116,9 @@ struct ViewHarness
     std::unique_ptr<ui::ArrangementView> view;
     std::unique_ptr<ui::HeaderBar> headerBar;
     std::unique_ptr<ui::ClipInspector> inspector;
+    std::function<engine::WarpSettings(const juce::String& sourceId)> defaultWarp;
+    /** The tempo the inspector is told the sound has (0 = not known). */
+    double soundBpm = 0.0;
     juce::Array<juce::File> droppedFiles;
     commands::PlacementTarget droppedTarget;
 };

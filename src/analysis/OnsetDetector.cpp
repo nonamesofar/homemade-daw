@@ -43,7 +43,7 @@ std::vector<float> computeFlux(const float* mono, juce::int64 numFrames)
         std::fill(frame.begin(), frame.end(), 0.0f);
         std::copy_n(mono + static_cast<juce::int64>(h) * hop, fftSize, frame.begin());
         window.multiplyWithWindowingTable(frame.data(), static_cast<size_t>(fftSize));
-        fft.performFrequencyOnlyForwardTransform(frame.data());
+        fft.performFrequencyOnlyForwardTransform(frame.data(), true); // bins 0..size/2 only: all the bands use
 
         float sum = 0.0f;
         for (int band = 0; band < numBands; ++band)

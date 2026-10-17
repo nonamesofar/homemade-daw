@@ -3,6 +3,7 @@
 #include "Arrangement.h"
 #include "EngineSetup.h"
 #include "ProjectEdit.h"
+#include "WarpService.h"
 
 namespace te = tracktion::engine;
 
@@ -20,13 +21,20 @@ bool renderToWav(ProjectEdit& project, const juce::File& destination, const Rend
         return false;
     }
 
-    // Reverse renders play silence until their file is complete.
+    // Reverse, Tones and Beats renders play silence until their file is complete: make the missing Beats renders and wait.
+    auto& warp = project.warpService();
+    warp.scan();
     const auto deadline = juce::Time::getMillisecondCounter() + static_cast<juce::uint32>(options.proxyTimeoutMs);
-    while (! arrangement.allRendersReady())
+    while (! (warp.isIdle() && arrangement.allRendersReady()))
     {
+        if (warp.isIdle() && warp.numFailures() > 0)
+        {
+            error = "A stretched version of a clip could not be made: " + warp.lastError();
+            return false;
+        }
         if (juce::Time::getMillisecondCounter() > deadline)
         {
-            error = "A reversed clip did not finish rendering.";
+            error = "A clip did not finish rendering (reverse, Tones or Beats).";
             return false;
         }
         juce::MessageManager::getInstance()->runDispatchLoopUntil(20);

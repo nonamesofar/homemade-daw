@@ -366,6 +366,56 @@ AnalysisFixture makeLoop48k()
     return fixture;
 }
 
+/**
+    4 bars of 4/4 at 100 BPM (9.6 s, exactly 423360 frames at 44.1 kHz) of a sustained 440 Hz sine, the same in both
+    channels: 4224 whole cycles, so the loop is seamless and a pitch or tempo change is easy to measure. No hits.
+*/
+AnalysisFixture makeTone440()
+{
+    constexpr double rate = 44100.0;
+    constexpr int frames = 423360;
+    AnalysisFixture fixture;
+    fixture.sampleRate = rate;
+    fixture.tempo = 100.0;
+    auto channels = makeChannels(2, frames);
+    for (int i = 0; i < frames; ++i)
+        channels[0][static_cast<size_t>(i)] = channels[1][static_cast<size_t>(i)] = 0.5 * std::sin(2.0 * pi * 440.0 * i / rate);
+    fixture.audio = quantise(channels);
+    return fixture;
+}
+
+/**
+    4 bars at 100 BPM (423360 frames at 44.1 kHz) of a sustained A minor pad with slow vibrato and a swell that is
+    constant after the first second: no hits, so Beats mode has to cut it on the 1/16 grid.
+*/
+AnalysisFixture makePadSustain()
+{
+    constexpr double rate = 44100.0;
+    constexpr int frames = 423360;
+    AnalysisFixture fixture;
+    fixture.sampleRate = rate;
+    fixture.tempo = 100.0;
+    auto channels = makeChannels(2, frames);
+    const double notes[] = {220.0, 261.63, 329.63};
+    for (int i = 0; i < frames; ++i)
+    {
+        const double t = i / rate;
+        const double fade = std::min({1.0, t / 1.0, (frames / rate - t) / 1.0});
+        double left = 0.0, right = 0.0;
+        for (int n = 0; n < 3; ++n)
+        {
+            const double vibrato = 1.0 + 0.002 * std::sin(2.0 * pi * (0.5 + 0.1 * n) * t);
+            left += std::sin(2.0 * pi * notes[n] * 0.999 * vibrato * t);
+            right += std::sin(2.0 * pi * notes[n] * 1.001 * vibrato * t);
+        }
+        channels[0][static_cast<size_t>(i)] = fade * left;
+        channels[1][static_cast<size_t>(i)] = fade * right;
+    }
+    normalise(channels, 0.6);
+    fixture.audio = quantise(channels);
+    return fixture;
+}
+
 /** The truth file next to an analysis fixture: tempo, first beat and every hit as a frame at the file's rate. */
 juce::String truthJson(const AnalysisFixture& fixture)
 {
@@ -472,7 +522,8 @@ juce::StringArray fixtureFileNames()
             "kick.wav",           "bass-phrase.flac",    "pad-chord.ogg",      "texture-60s.flac",
             "5ch-tone.wav",       "corrupt.wav",         "not-audio.txt",
             "break-90.wav",       "break-90.json",       "pattern-120-7s.wav", "pattern-120-7s.json",
-            "loop-120-48k.wav",   "loop-120-48k.json"};
+            "loop-120-48k.wav",   "loop-120-48k.json",
+            "tone-440-100.wav",   "tone-440-100.json",   "pad-sustain-100.wav", "pad-sustain-100.json"};
 }
 
 juce::String generateFixtures(const juce::File& dir)
@@ -506,7 +557,8 @@ juce::String generateFixtures(const juce::File& dir)
         step("cannot write not-audio.txt");
 
     const std::pair<const char*, AnalysisFixture> analysisFixtures[] = {
-        {"break-90", makeBreak90()}, {"pattern-120-7s", makePattern7s()}, {"loop-120-48k", makeLoop48k()}};
+        {"break-90", makeBreak90()}, {"pattern-120-7s", makePattern7s()}, {"loop-120-48k", makeLoop48k()},
+        {"tone-440-100", makeTone440()}, {"pad-sustain-100", makePadSustain()}};
     for (const auto& [name, fixture] : analysisFixtures)
     {
         step(writeWithFormat(wav, dir.getChildFile(juce::String(name) + ".wav"), fixture.audio, fixture.sampleRate, 16));

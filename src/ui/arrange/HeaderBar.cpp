@@ -242,8 +242,14 @@ HeaderBar::HeaderBar(HeaderContext context) : ctx(std::move(context))
     tempo.onDragStart = [this] {
         ctx.commands.begin("Set tempo");
         tempoGesture = std::make_unique<commands::SetTempo>(ctx.arrangement.tempo());
+        tempoGesture->setDeferRenders(true); // Beats clips keep their render while the tempo moves
     };
     tempo.onDragEnd = [this] {
+        if (tempoGesture != nullptr)
+        {
+            tempoGesture->setDeferRenders(false); // the last update gives Beats clips the renders of the final tempo
+            ctx.commands.update(*tempoGesture);
+        }
         ctx.commands.commit();
         tempoGesture.reset();
     };

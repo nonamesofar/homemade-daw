@@ -17,3 +17,8 @@ juce_add_console_app(PadProbe PRODUCT_NAME "Pad Probe")
 target_sources(PadProbe PRIVATE PadProbe.cpp)
 target_link_libraries(PadProbe PRIVATE sampler_engine_testkit sampler_engine sampler_platform sampler_render)
 sampler_target_debuggable(PadProbe)
+
+juce_add_console_app(WarpProbe PRODUCT_NAME "Warp Probe")
+target_sources(WarpProbe PRIVATE WarpProbe.cpp)
+target_link_libraries(WarpProbe PRIVATE sampler_engine_testkit sampler_engine)
+sampler_target_debuggable(WarpProbe)

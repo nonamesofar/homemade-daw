@@ -20,6 +20,12 @@ struct TimeMap
     static TimeMap constantTempo(double bpm);
 };
 
+struct Span;
+/** Seconds of the sound between two beats of a clip: through the tempo when unwarped, through its own tempo when warped. */
+double soundSecondsBetween(const Span&, double fromBeat, double toBeat, const TimeMap&);
+/** The beat that lies `soundSeconds` of the clip's sound after `fromBeat`. */
+double beatAfterSoundSeconds(const Span&, double fromBeat, double soundSeconds, const TimeMap&);
+
 /**
     A clip as the planner sees it: track index, start and length in beats, offset into its sound in seconds.
     Existing clips have an `id`; clips that do not exist yet have none and say where they come from: a copy of an
@@ -34,8 +40,22 @@ struct Span
     int track = 0;
     double start = 0.0;
     double length = 0.0;
-    double offset = 0.0;
+    double offset = 0.0; // seconds into the sound (the reversed sound when reversed)
+    /**
+        The clip's own tempo when it is warped, else 0. A warped clip plays 60 / warpBpm seconds of its sound per beat
+        whatever the project tempo, so its offset moves by that when its start moves; an unwarped clip plays the sound at
+        its own speed, so seconds of the sound are seconds of the timeline (through the TimeMap).
+    */
+    double warpBpm = 0.0;
+    /**
+        A looped clip repeats [loopStart, loopStart + loopLength) of its sound (seconds of the sound; 0 length = not looped),
+        and `offset` is where inside that part it starts: moving its start wraps the offset around the loop instead of
+        running out of sound.
+    */
+    double loopStart = 0.0;
+    double loopLength = 0.0;
 
+    bool isLooped() const { return loopLength > 0.0; }
     double end() const { return start + length; }
 };
 
@@ -74,8 +94,10 @@ public:
 
     /**
         Limits for trimming: the start may not go before the sound's start (offset 0) or within `minLength` of the end;
-        the end may not pass the sound's end (`sourceSeconds`) or come within `minLength` of the start.
+        the end may not pass the sound's end (`sourceSeconds`) or come within `minLength` of the start. A looped clip can
+        be made longer than its sound (up to `maxLoopRepeats` times the sound), but not start earlier.
     */
+    static constexpr double maxLoopRepeats = 50.0;
     static double clampTrimStart(const Span&, double newStart, double minLength, const TimeMap&);
     static double clampTrimEnd(const Span&, double newEnd, double sourceSeconds, double minLength, const TimeMap&);
 };

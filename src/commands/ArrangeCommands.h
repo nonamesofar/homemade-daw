@@ -50,16 +50,25 @@ struct PlacementTarget
 class CreateClipsFromSources final : public ArrangeCommand
 {
 public:
-    CreateClipsFromSources(std::vector<juce::String> sourceIds, PlacementTarget target) : sources(std::move(sourceIds)), where(target) {}
+    /**
+        `warpSettings` (one per sound, may be shorter or empty) are what the new clips start with. The caller decides: it
+        asks the analysis for the sound's tempo (design D1); a sound without an entry gets WARP off.
+    */
+    CreateClipsFromSources(std::vector<juce::String> sourceIds, PlacementTarget target, std::vector<engine::WarpSettings> warpSettings = {})
+        : sources(std::move(sourceIds)), where(target), warps(std::move(warpSettings))
+    {
+    }
     juce::String name() const override { return clipCountName("Add", sources.size()); }
     void perform(ModelContext&) override;
 
     /** Also used by ImportAndPlace. */
-    static std::vector<juce::String> place(ModelContext&, const std::vector<juce::String>& sourceIds, PlacementTarget);
+    static std::vector<juce::String> place(ModelContext&, const std::vector<juce::String>& sourceIds, PlacementTarget,
+                                           const std::vector<engine::WarpSettings>& warps = {});
 
 private:
     std::vector<juce::String> sources;
     PlacementTarget where;
+    std::vector<engine::WarpSettings> warps;
 };
 
 /**
@@ -72,7 +81,15 @@ private:
 class SlicesToTrack final : public ArrangeCommand
 {
 public:
-    SlicesToTrack(juce::String sourceId, double startAtBeat) : id(std::move(sourceId)), startBeat(startAtBeat) {}
+    /**
+        `warp` (chosen by the caller from the sound's tempo, design D1) makes the clips follow the project tempo: each slice
+        covers its part of the sound as beats at that tempo, the clips lie back to back in beats, and a slice's saved pitch
+        becomes the clip's transpose. Without it the clips play at the sound's own speed, as in M3.
+    */
+    SlicesToTrack(juce::String sourceId, double startAtBeat, engine::WarpSettings warpSettings = {})
+        : id(std::move(sourceId)), startBeat(startAtBeat), warp(warpSettings)
+    {
+    }
     juce::String name() const override { return "Slices to new track"; }
     void perform(ModelContext&) override;
     const juce::String& trackId() const { return newTrackId; }
@@ -80,6 +97,7 @@ public:
 private:
     juce::String id;
     double startBeat;
+    engine::WarpSettings warp;
     juce::String newTrackId;
 };
 
@@ -88,8 +106,9 @@ class ImportAndPlace final : public ArrangeCommand
 {
 public:
     /** `placeIds` are the sounds to place in order (new ones and ones that were already in the project). */
-    ImportAndPlace(std::vector<model::SourceData> sources, std::vector<juce::String> placeIds, PlacementTarget target)
-        : items(std::move(sources)), toPlace(std::move(placeIds)), where(target)
+    ImportAndPlace(std::vector<model::SourceData> sources, std::vector<juce::String> placeIds, PlacementTarget target,
+                   std::vector<engine::WarpSettings> warpSettings = {})
+        : items(std::move(sources)), toPlace(std::move(placeIds)), where(target), warps(std::move(warpSettings))
     {
     }
     juce::String name() const override;
@@ -99,6 +118,7 @@ private:
     std::vector<model::SourceData> items;
     std::vector<juce::String> toPlace;
     PlacementTarget where;
+    std::vector<engine::WarpSettings> warps; // one per entry of toPlace (see CreateClipsFromSources)
 };
 
 struct ClipMove
@@ -177,10 +197,16 @@ struct ClipRecord
     juce::String name;
     int trackOffset = 0;
     double startOffset = 0.0;   // beats
-    double lengthSeconds = 0.0; // clips play at native speed: the length is kept in seconds
-    double offsetSeconds = 0.0;
+    double lengthSeconds = 0.0; // an unwarped clip plays at native speed: its length is kept in seconds
+    double offsetSeconds = 0.0; // seconds of the sound
     double gainDb = 0.0;
     bool reversed = false;
+    engine::WarpSettings warp;  // a warped clip is pasted with its warp settings and keeps its length in beats
+    double lengthBeats = 0.0;
+    double loopStart = 0.0;     // a looped clip is pasted looped (seconds of the sound; 0 length = not looped)
+    double loopLength = 0.0;
+    double fadeIn = 0.0;        // the user's fades in seconds
+    double fadeOut = 0.0;
 };
 
 class PasteClips final : public ArrangeCommand
@@ -222,6 +248,92 @@ public:
 private:
     juce::String clipId;
     double beat;
+};
+
+/**
+    Turns warping on or off, picks the mode or sets the clip's own tempo (typed, halved or doubled): one undo step. The clip
+    keeps its start and the part of its sound, so its length in bars follows the tempo; the no-overlap rule applies to the new
+    length. Turning WARP on needs a tempo (20..999): without one nothing changes. Transpose is kept (see SetClipTranspose).
+*/
+class SetClipWarp final : public ArrangeCommand
+{
+public:
+    SetClipWarp(juce::String id, bool warpOn, engine::WarpMode warpMode, double bpm)
+        : clipId(std::move(id)), on(warpOn), mode(warpMode), sourceBpm(bpm)
+    {
+    }
+    juce::String name() const override { return "Set clip warp"; }
+    void perform(ModelContext&) override;
+
+private:
+    juce::String clipId;
+    bool on;
+    engine::WarpMode mode;
+    double sourceBpm;
+};
+
+/** Transposes a clip by -24..+24 semitones (clamped). Heard in Beats and Tones mode; the value is kept in the others. */
+class SetClipTranspose final : public ArrangeCommand
+{
+public:
+    SetClipTranspose(juce::String id, double semitones) : clipId(std::move(id)), st(semitones) {}
+    juce::String name() const override { return "Set clip transpose"; }
+    void perform(ModelContext&) override;
+
+private:
+    juce::String clipId;
+    double st;
+};
+
+/**
+    Turns the loop of a clip on or off (clip-inspector spec). On: the loop is the part of the sound the clip plays now, and the
+    clip can then be made longer, repeating it. Off: a clip longer than one pass becomes one pass long. One undo step.
+*/
+class SetClipLoop final : public ArrangeCommand
+{
+public:
+    SetClipLoop(juce::String id, bool loopOn) : clipId(std::move(id)), on(loopOn) {}
+    juce::String name() const override { return "Set clip loop"; }
+    void perform(ModelContext&) override;
+
+private:
+    juce::String clipId;
+    bool on;
+};
+
+/**
+    Sets the length of a clip in beats, keeping its start. Without loop it cannot pass the end of its sound; a looped clip may
+    be longer than its sound. The no-overlap rule applies to the clips it now covers.
+*/
+class SetClipLength final : public ArrangeCommand
+{
+public:
+    SetClipLength(juce::String id, double lengthInBeats) : clipId(std::move(id)), beats(lengthInBeats) {}
+    juce::String name() const override { return "Set clip length"; }
+    void perform(ModelContext&) override;
+
+private:
+    juce::String clipId;
+    double beats;
+};
+
+/**
+    Sets the fade in and fade out of a clip in seconds (0 = only the short click-free fade every clip has). Together they are
+    cut to the clip's length: the fade in wins, the fade out gets what is left. Use `begin / update / commit` for a drag.
+*/
+class SetClipFades final : public ArrangeCommand
+{
+public:
+    SetClipFades(juce::String id, double fadeInSeconds, double fadeOutSeconds)
+        : clipId(std::move(id)), fadeIn(fadeInSeconds), fadeOut(fadeOutSeconds)
+    {
+    }
+    juce::String name() const override { return "Set clip fades"; }
+    void perform(ModelContext&) override;
+
+private:
+    juce::String clipId;
+    double fadeIn, fadeOut;
 };
 
 class SetClipReversed final : public ArrangeCommand
@@ -388,6 +500,12 @@ public:
     void perform(ModelContext&) override;
 
     /**
+        During a tempo drag the Beats clips keep the render they play (and are heard at the old speed), so that no render is
+        asked for at every step. The last update of the drag, and every command that is applied on its own, has this off.
+    */
+    void setDeferRenders(bool defer) { deferRenders = defer; }
+
+    /**
         A tempo drag reuses one command for all its updates: the clip lengths seen at the first `perform` are the
         baseline every later one restores before it shortens overlaps, so going 120 -> 200 -> 120 loses nothing.
         A NaN or infinite tempo does nothing.
@@ -396,6 +514,7 @@ public:
 
 private:
     double bpm;
+    bool deferRenders = false;
     std::optional<std::vector<engine::ClipInfo>> baseline;
 };
 
@@ -411,6 +530,8 @@ private:
 };
 
 /** The planner's view of the arrangement's clips. */
+/** The span of one clip as the planner sees it (warp tempo and loop included); `trackIndex` is its track's index. */
+Span spanFor(const engine::ClipInfo&, int trackIndex);
 std::vector<Span> spansOf(const engine::Arrangement&);
 TimeMap timeMapOf(const engine::Arrangement&);
 } // namespace sampler::commands

@@ -9,7 +9,7 @@ sampler_target_warnings(sampler_tests)
 catch_discover_tests(sampler_tests)
 
 # Pure UI logic: geometry, position text, snap, selection, meters, key routing (no window).
-add_executable(sampler_ui_tests ui/arrange_geometry.test.cpp ui/arrange_logic.test.cpp ui/editor_math.test.cpp ui/pad_keys.test.cpp)
+add_executable(sampler_ui_tests ui/arrange_geometry.test.cpp ui/arrange_logic.test.cpp ui/editor_math.test.cpp ui/inspector_logic.test.cpp ui/pad_keys.test.cpp)
 target_compile_definitions(sampler_ui_tests PRIVATE SAMPLER_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/audio-fixtures")
 target_include_directories(sampler_ui_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(sampler_ui_tests PRIVATE sampler_ui Catch2::Catch2WithMain)
@@ -92,7 +92,7 @@ catch_discover_tests(sampler_app_tests ADD_TAGS_AS_LABELS)
 
 # The arrangement (facade, commands, transport, renders) on a real headless engine.
 add_executable(sampler_arrange_tests arrange/slices_to_track.test.cpp arrange/arrangement.test.cpp arrange/arrange_commands.test.cpp arrange/arrangement_view.test.cpp
-    arrange/arrange_more.test.cpp arrange/arrange_property.test.cpp arrange/arrange_perf.test.cpp arrange/arrange_hardware.test.cpp arrange/recording_commands.test.cpp arrange/recording_view.test.cpp arrange/take_tap.test.cpp)
+    arrange/arrange_more.test.cpp arrange/arrange_property.test.cpp arrange/arrange_perf.test.cpp arrange/arrange_hardware.test.cpp arrange/recording_commands.test.cpp arrange/recording_view.test.cpp arrange/take_tap.test.cpp arrange/warp_arrangement.test.cpp arrange/warp_project.test.cpp arrange/warp_service.test.cpp arrange/warp_commands.test.cpp arrange/warp_defaults.test.cpp arrange/warp_inspector.test.cpp arrange/warp_loop.test.cpp)
 target_include_directories(sampler_arrange_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(sampler_arrange_tests PRIVATE SAMPLER_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/audio-fixtures")
 target_link_libraries(sampler_arrange_tests PRIVATE sampler_ui sampler_commands sampler_engine sampler_juce Catch2::Catch2WithMain)
@@ -124,7 +124,9 @@ sampler_target_warnings(sampler_analysis_tests)
 catch_discover_tests(sampler_analysis_tests ADD_TAGS_AS_LABELS)
 
 # Slice rendering (pitch, reverse, resample, gain) and its scheduler: pure DSP, no engine, no Tracktion.
-add_executable(sampler_render_tests render/slice_renderer.test.cpp render/render_scheduler.test.cpp)
+add_executable(sampler_render_tests render/slice_renderer.test.cpp render/render_scheduler.test.cpp render/beats_renderer.test.cpp)
+target_include_directories(sampler_render_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/analysis)
+target_compile_definitions(sampler_render_tests PRIVATE SAMPLER_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/audio-fixtures")
 target_link_libraries(sampler_render_tests PRIVATE sampler_render sampler_juce Catch2::Catch2WithMain)
 sampler_target_debuggable(sampler_render_tests)
 sampler_target_warnings(sampler_render_tests)

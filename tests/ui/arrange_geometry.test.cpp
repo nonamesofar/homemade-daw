@@ -209,3 +209,51 @@ TEST_CASE("auto-scroll near the edges of the header list, ruler label spacing", 
     CHECK(rulerLabelStep(20.0, 4.0) == 1); // 80 px per bar
     CHECK(rulerLabelStep(2.0, 4.0) == 8);  // 8 px per bar: every 8th bar
 }
+
+TEST_CASE("fade handles win over the edges only in the top 8 px, and sit where the fades end", "[ui][hittest][fades]")
+{
+    const ArrangeLayout layout;
+    const auto v = makeView(10.0);
+    // Clip "b" spans x 160..320; its lane starts 8 px below the track top (see the test above).
+    const std::vector<LaneClip> clips{{"a", 0, 0.0, 16.0}, {"b", 0, 16.0, 16.0}};
+
+    // No fades: the handles are at the corners.
+    auto hit = hitTestClip(clips, layout, v, 162.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->id == "b");
+    CHECK(hit->zone == ClipZone::fadeInHandle);
+    hit = hitTestClip(clips, layout, v, 318.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::fadeOutHandle);
+
+    // Below the top 8 px the same x is the edge again.
+    hit = hitTestClip(clips, layout, v, 162.0, 8.0 + 9.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::leftEdge);
+    hit = hitTestClip(clips, layout, v, 318.0, 8.0 + 9.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::rightEdge);
+
+    // The middle of the top band is the body.
+    hit = hitTestClip(clips, layout, v, 240.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::body);
+
+    // With a fade in of 4 beats (40 px) the handle sits 40 px in; the corner is the edge's again only below the band.
+    const std::vector<LaneClip> faded{{"f", 0, 16.0, 16.0, 4.0, 2.0}};
+    hit = hitTestClip(faded, layout, v, 200.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::fadeInHandle);
+    hit = hitTestClip(faded, layout, v, 162.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::leftEdge); // the handle moved away from the corner
+    hit = hitTestClip(faded, layout, v, 300.0, 10.0); // 320 - 2 beats * 10
+    REQUIRE(hit);
+    CHECK(hit->zone == ClipZone::fadeOutHandle);
+
+    // A narrow clip has no handles.
+    const std::vector<LaneClip> narrow{{"n", 0, 0.0, 1.2}};
+    hit = hitTestClip(narrow, layout, v, 2.0, 10.0);
+    REQUIRE(hit);
+    CHECK(hit->zone != ClipZone::fadeInHandle);
+}

@@ -32,6 +32,9 @@ public:
     void setSelected(int index, bool notify = false);
     int selected() const { return selectedIndex; }
     int itemAt(juce::Point<int> position) const { return segmentAt(position.x, getWidth(), items.size()); }
+    /** A disabled segment is drawn greyed out and cannot be chosen (Texture in the warp MODE). */
+    void setItemEnabled(int index, bool enabled);
+    bool isItemEnabled(int index) const { return ! disabledItems.contains(index); }
     std::function<void(int)> onChange;
 
     void paint(juce::Graphics&) override;
@@ -39,6 +42,7 @@ public:
 
 private:
     juce::StringArray items;
+    juce::Array<int> disabledItems;
     int selectedIndex = 0;
 };
 

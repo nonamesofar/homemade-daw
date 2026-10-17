@@ -18,6 +18,7 @@ namespace engine
 class Arrangement;
 class LevelMeters;
 class Transport;
+class WarpService;
 class TakeRecorder;
 } // namespace engine
 
@@ -80,6 +81,8 @@ public:
     const engine::Arrangement& arrangement() const;
     engine::Transport& transport();
     engine::LevelMeters& levelMeters();
+    /** Makes the Beats renders that clips wait for, in the background (design D4). */
+    engine::WarpService& warpService();
     /** Taps on the master and the track outputs for recording (design D2, D3). */
     engine::TakeRecorder& takeRecorder();
     /** The Tracktion edit, for code inside src/engine only (include EngineSetup.h to use it). */
